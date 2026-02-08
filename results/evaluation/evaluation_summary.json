@@ -1,0 +1,12 @@
+{
+  "best_percentile": 95,
+  "best_threshold": 0.0004117581993341446,
+  "best_f1_score": 0.6577235227044067,
+  "best_precision": 0.6622990679454275,
+  "best_recall": 0.653210764721556,
+  "roc_auc": 0.8754624193978151,
+  "test_set_size": 57506,
+  "normal_samples": 50000,
+  "fraud_samples": 7506,
+  "fraud_percentage": 13.05255103815254
+}

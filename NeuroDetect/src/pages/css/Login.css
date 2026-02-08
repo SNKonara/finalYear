@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Login Page Background */
+.login-page {
+  @apply min-h-screen flex items-center px-4 bg-cover bg-center;
+  background-image: url('./assets/images/bg1.png'); 
+}
+
+/* Login Card */
+.login-card {
+  @apply bg-gray-900 bg-opacity-90 rounded-md p-8 shadow-md max-w-md w-full;
+}
+
+/* Input Fields */
+.input-field {
+  @apply w-full text-gray-200 bg-black bg-opacity-90 rounded border border-gray-700 
+         focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none py-3 pl-10;
+}
+
+/* Toggle Switch Container (button) */
+.toggle-switch {
+  @apply w-11 h-6 flex items-center bg-gray-700 rounded-full cursor-pointer relative transition-colors duration-300 ease-in-out;
+}
+
+/* Enabled State */
+.toggle-switch-enabled {
+  @apply bg-indigo-500;
+}
+
+/* Toggle Thumb */
+.toggle-thumb {
+  @apply bg-gray-200 w-5 h-5 rounded-full shadow-md absolute left-0.5 top-0.5 transition-transform duration-300 ease-in-out;
+}
+
+/* Thumb movement when enabled */
+.toggle-switch-enabled .toggle-thumb {
+  @apply translate-x-5; /* Tailwind's translate-x-5 = 1.25rem */
+}
+
+/* Icons */
+.icon {
+  stroke-width: 2.5;
+}
