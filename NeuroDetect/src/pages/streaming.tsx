@@ -26,7 +26,9 @@ import {
   Server,
   Network,
   ZapOff,
-  ExternalLink
+  ExternalLink,
+  Menu,
+  X
 } from 'lucide-react';
 import './css/streaming.css';
 
@@ -79,11 +81,44 @@ const Streaming: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showFraudOnly, setShowFraudOnly] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Refs
   const recordsRef = useRef<StreamingRecord[]>([]);
   const statsRef = useRef<StreamingStats>(stats);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Sync streaming state across pages using localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'fraud_detection_streaming') {
+        const newState = e.newValue === 'true';
+        setIsStreaming(newState);
+        
+        // Send the appropriate command to the WebSocket
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          if (newState && !isStreaming) {
+            wsRef.current.send(JSON.stringify({ command: 'start_stream' }));
+          } else if (!newState && isStreaming) {
+            wsRef.current.send(JSON.stringify({ command: 'stop_stream' }));
+          }
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Check initial state from localStorage
+    const savedState = localStorage.getItem('fraud_detection_streaming');
+    if (savedState !== null) {
+      const streamingState = savedState === 'true';
+      setIsStreaming(streamingState);
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [isStreaming]);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -114,6 +149,7 @@ const Streaming: React.FC = () => {
         setIsConnected(false);
         setIsStreaming(false);
         setConnectionStatus('disconnected');
+        localStorage.setItem('fraud_detection_streaming', 'false');
         
         // Attempt to reconnect after 3 seconds
         setTimeout(() => {
@@ -156,12 +192,15 @@ const Streaming: React.FC = () => {
     if (typeof data.streaming === 'boolean' || data.status || data.speed || data.stream_speed) {
       if (typeof data.streaming === 'boolean') {
         setIsStreaming(data.streaming);
+        localStorage.setItem('fraud_detection_streaming', data.streaming.toString());
       }
       if (data.status === 'stopped') {
         setIsStreaming(false);
+        localStorage.setItem('fraud_detection_streaming', 'false');
       }
       if (data.status === 'already_streaming') {
         setIsStreaming(true);
+        localStorage.setItem('fraud_detection_streaming', 'true');
       }
       const newSpeed = data.speed ?? data.stream_speed;
       if (newSpeed) {
@@ -246,10 +285,14 @@ const Streaming: React.FC = () => {
   }, []);
 
   const startStreaming = () => {
+    setIsStreaming(true);
+    localStorage.setItem('fraud_detection_streaming', 'true');
     sendCommand('start_stream');
   };
 
   const stopStreaming = () => {
+    setIsStreaming(false);
+    localStorage.setItem('fraud_detection_streaming', 'false');
     sendCommand('stop_stream');
   };
 
@@ -303,7 +346,6 @@ const Streaming: React.FC = () => {
   // Chart data for fraud distribution
   const fraudChartData = [
     { label: 'Normal', value: stats.normalCount, color: 'normal' },
-    { label: 'Suspicious', value: stats.fraudCount > stats.normalCount ? stats.fraudCount - stats.normalCount : 0, color: 'suspicious' },
     { label: 'Fraud', value: stats.fraudCount, color: 'fraud' }
   ];
 
@@ -311,52 +353,201 @@ const Streaming: React.FC = () => {
 
   return (
     <div className="streaming-content">
-      <main className="dashboard-main">
-        {/* Top Bar */}
-        <header className="top-bar">
-          <div className="page-title">
-            <h1>Streaming Dashboard</h1>
-            <p className="subtitle">Real-time transaction monitoring and analysis</p>
+      {/* Hamburger Menu Button */}
+      <button 
+        className="menu-toggle-btn"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        style={{
+          position: 'fixed',
+          top: '20px',
+          left: '20px',
+          zIndex: 1001,
+          background: 'rgba(30, 41, 59, 0.9)',
+          border: '1px solid rgba(148, 163, 184, 0.2)',
+          borderRadius: '8px',
+          padding: '10px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Collapsible Sidebar */}
+      <aside 
+        className={`dashboard-sidebar ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: sidebarOpen ? 0 : '-280px',
+          height: '100vh',
+          width: '280px',
+          background: 'rgba(15, 23, 42, 0.95)',
+          borderRight: '1px solid rgba(148, 163, 184, 0.2)',
+          transition: 'left 0.3s ease',
+          zIndex: 1000,
+          overflowY: 'auto'
+        }}
+      >
+        <div className="sidebar-header" style={{ padding: '24px' }}>
+          <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Shield className="logo-icon" style={{ width: '32px', height: '32px', color: '#3b82f6' }} />
+            <span className="logo-text" style={{ fontSize: '20px', fontWeight: 'bold' }}>NeuroDetect</span>
           </div>
-          
-          <div className="top-bar-actions">
+        </div>
+
+        <nav className="sidebar-nav" style={{ padding: '0 16px' }}>
+          <a href="/dashboard" className="nav-item" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            color: 'rgba(148, 163, 184, 1)',
+            marginBottom: '8px',
+            transition: 'all 0.2s'
+          }}>
+            <BarChart3 className="nav-icon" size={20} />
+            <span>Overview</span>
+          </a>
+          <a href="/streaming" className="nav-item active" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            background: 'rgba(59, 130, 246, 0.1)',
+            color: '#3b82f6',
+            marginBottom: '8px'
+          }}>
+            <Activity className="nav-icon" size={20} />
+            <span>Live Stream</span>
+          </a>
+          <a href="/analytics" className="nav-item" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            color: 'rgba(148, 163, 184, 1)',
+            marginBottom: '8px'
+          }}>
+            <Server className="nav-icon" size={20} />
+            <span>Analytics</span>
+          </a>
+        </nav>
+      
+        <div className="sidebar-footer" style={{ padding: '24px', marginTop: 'auto' }}>
+          <div className="stream-status" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className={`status-indicator ${isStreaming ? 'streaming' : 'paused'}`} style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: isStreaming ? '#10b981' : '#6b7280'
+            }}>
+              <div className="status-pulse"></div>
+            </div>
+            <span>{isStreaming ? 'Streaming' : 'Idle'}</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* Overlay when sidebar is open */}
+      {sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 999
+          }}
+        />
+      )}
+
+      <main className="dashboard-main" style={{ marginLeft: 0, paddingLeft: '24px', paddingRight: '24px' }}>
+        {/* Control Bar */}
+        
+        <div className="top-bar" style={{ marginTop: '70px', marginBottom: '24px' }}>
+          <div className="top-bar-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
             <button 
               className="action-btn test-btn"
               onClick={pingServer}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 16px',
+                background: 'rgba(30, 41, 59, 0.9)',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
             >
-              <Network className="btn-icon" />
+              <Network className="btn-icon" size={18} />
               <span>Test Connection</span>
             </button>
             
-            <div className="control-buttons">
+            <div className="control-buttons" style={{ display: 'flex', gap: '8px' }}>
               <button
                 className={`stream-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
                 onClick={startStreaming}
                 disabled={!isConnected || isStreaming}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  background: isConnected && !isStreaming ? '#10b981' : 'rgba(30, 41, 59, 0.5)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isConnected && !isStreaming ? 'pointer' : 'not-allowed',
+                  color: '#fff'
+                }}
               >
-                <Play className="btn-icon" />
+                <Play className="btn-icon" size={18} />
                 <span>Start</span>
               </button>
               <button
                 className={`stream-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
                 onClick={stopStreaming}
                 disabled={!isConnected || !isStreaming}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  background: isConnected && isStreaming ? '#ef4444' : 'rgba(30, 41, 59, 0.5)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isConnected && isStreaming ? 'pointer' : 'not-allowed',
+                  color: '#fff'
+                }}
               >
-                <Pause className="btn-icon" />
+                <Pause className="btn-icon" size={18} />
                 <span>Stop</span>
               </button>
             </div>
           </div>
-        </header>
+        </div>
 
         {/* Stats Grid */}
         <div className="stats-grid">
-          <div className="stat-card large">
+          <div className="stat-card">
             <div className="stat-header">
               <div className="stat-icon">
                 <Database />
               </div>
-              <div className="stat-trend positive">+12%</div>
+              <div className="stat-trend positive">+99%</div>
             </div>
             <div className="stat-value">{stats.totalReceived}</div>
             <div className="stat-label">Total Records</div>
@@ -370,7 +561,7 @@ const Streaming: React.FC = () => {
               </div>
             </div>
             <div className="stat-value">{stats.fraudCount}</div>
-            <div className="stat-label">Fraud Detected</div>
+            <div className="stat-label">Fraud Transactions</div>
             <div className="fraud-rate">{stats.fraudRate.toFixed(1)}% rate</div>
           </div>
 

@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from AEmodel.preprocessor import DataPreprocessor
 from AEmodel.model import FraudAutoencoder
+from database.mongodb import get_mongodb_instance
 
 class WebSocketFraudDetector:
     def __init__(self, websocket_url="ws://localhost:8765"):
@@ -47,8 +48,26 @@ class WebSocketFraudDetector:
         self.expected_features = None
         self.feature_names = None
         
+        # MongoDB connection
+        self.db = None
+        
         print("Initializing Fraud Detection Engine...")
         self.load_model_components()
+        self.connect_database()
+    
+    def connect_database(self):
+        """Initialize MongoDB connection"""
+        try:
+            print("\n Connecting to database...")
+            self.db = get_mongodb_instance()
+            if self.db.connected:
+                print("✅ Database connected successfully")
+            else:
+                print("⚠️ Database connection failed - results will not be saved")
+        except Exception as e:
+            print(f"⚠️ Database connection error: {e}")
+            print("   Continuing without database - results will not be saved")
+            self.db = None
     
     def load_model_components(self):
         """Load trained model and components"""
@@ -304,9 +323,13 @@ class WebSocketFraudDetector:
                         print(f"   Risk Level: {result['risk_level']}")
                         print(f"   Processing Time: {result['processing_time_ms']:.2f} ms")
                         
-                        # Save result immediately (optional)
-                        if result['is_fraud']:
-                            self.save_immediate_result(result)
+                        # Save result to database
+                        if self.db and self.db.connected:
+                            self.db.insert_fraud_result(result)
+                            
+                            # Save immediate alert for high-risk fraud
+                            if result['is_fraud']:
+                                self.save_immediate_alert(result)
                     
                     # Display statistics periodically
                     if self.stats['total_processed'] % 10 == 0:
@@ -328,16 +351,15 @@ class WebSocketFraudDetector:
         finally:
             self.processing = False
     
-    def save_immediate_result(self, result):
-        """Save immediate fraud result for quick review"""
-        os.makedirs('results/immediate', exist_ok=True)
-        
-        filename = f"results/immediate/fraud_{result['transaction_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        
-        with open(filename, 'w') as f:
-            json.dump(result, f, indent=2)
-        
-        print(f"💾 Immediate result saved: {filename}")
+    def save_immediate_alert(self, result):
+        """Save immediate fraud alert to database"""
+        try:
+            if self.db and self.db.connected:
+                alert_id = self.db.insert_immediate_alert(result)
+                if alert_id:
+                    print(f"🚨 Fraud alert saved to database (ID: {alert_id})")
+        except Exception as e:
+            print(f"⚠️ Error saving fraud alert: {e}")
     
     def display_statistics(self):
         """Display current statistics"""
@@ -392,44 +414,46 @@ class WebSocketFraudDetector:
                 print(f"   Throughput: {self.stats['total_processed'] / total_time:.2f} transactions/sec")
     
     def save_results(self):
-        """Save all results to files"""
-        if not self.results:
-            print("\n⚠️ No results to save")
+        """Save statistics and summary to database"""
+        print("\n💾 Saving session statistics to database...")
+        
+        if not self.db or not self.db.connected:
+            print("⚠️ Database not connected - statistics not saved")
             return
+        
+        try:
+            # Prepare session statistics
+            session_stats = {
+                'session_type': 'websocket_detection',
+                'total_processed': self.stats['total_processed'],
+                'fraud_detected': self.stats['fraud_detected'],
+                'preprocessing_errors': self.stats['preprocessing_errors'],
+                'dataset_loops': self.stats['dataset_loops'],
+                'avg_processing_time_ms': self.stats['avg_processing_time'],
+                'fraud_rate': (self.stats['fraud_detected'] / max(self.stats['total_processed'], 1)) * 100,
+                'session_start': datetime.fromtimestamp(self.stats['start_time']).isoformat() if self.stats['start_time'] else None,
+                'session_end': datetime.now().isoformat(),
+                'total_duration_seconds': time.time() - self.stats['start_time'] if self.stats['start_time'] else 0,
+                'throughput_tps': self.stats['total_processed'] / (time.time() - self.stats['start_time']) if self.stats['start_time'] and (time.time() - self.stats['start_time']) > 0 else 0
+            }
             
-        print("\n💾 Saving results...")
-        os.makedirs('results', exist_ok=True)
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Save as JSON
-        json_path = f'results/websocket_results_{timestamp}.json'
-        with open(json_path, 'w') as f:
-            json.dump(self.results, f, indent=2)
-        print(f"✓ JSON results saved: {json_path}")
-        
-        # Save as CSV
-        if self.results:
-            # Extract summary data
-            summary_data = []
-            for result in self.results:
-                summary = {
-                    'transaction_id': result['transaction_id'],
-                    'amount': result['transaction_data'].get('amt', 0),
-                    'category': result['transaction_data'].get('category', 'Unknown'),
-                    'reconstruction_error': result['reconstruction_error'],
-                    'is_fraud': result['is_fraud'],
-                    'fraud_probability': result['fraud_probability'],
-                    'risk_level': result['risk_level'],
-                    'processing_time_ms': result['processing_time_ms'],
-                    'timestamp': result['timestamp']
-                }
-                summary_data.append(summary)
-            
-            df = pd.DataFrame(summary_data)
-            csv_path = f'results/websocket_results_{timestamp}.csv'
-            df.to_csv(csv_path, index=False)
-            print(f"✓ CSV results saved: {csv_path}")
+            # Save to database
+            stats_id = self.db.save_statistics(session_stats)
+            if stats_id:
+                print(f"✅ Session statistics saved to database (ID: {stats_id})")
+                
+                # Display database summary
+                summary = self.db.get_statistics_summary()
+                if summary:
+                    print(f"\n📊 Database Summary:")
+                    print(f"   Total transactions in DB: {summary.get('total_transactions', 0)}")
+                    print(f"   Total fraud detected in DB: {summary.get('fraud_detected', 0)}")
+                    print(f"   Overall fraud rate: {summary.get('fraud_rate', 0):.2f}%")
+            else:
+                print("⚠️ Failed to save statistics to database")
+                
+        except Exception as e:
+            print(f"❌ Error saving statistics: {e}")
     
     async def run(self):
         """Main run method"""
@@ -454,13 +478,17 @@ class WebSocketFraudDetector:
             # Save results
             self.save_results()
             
-            # Close connection
+            # Close connections
             if self.connected:
                 try:
                     await self.websocket.close()
-                    print("🔌 Connection closed")
+                    print("🔌 WebSocket connection closed")
                 except:
                     pass
+            
+            # Close database connection
+            if self.db and self.db.connected:
+                self.db.close()
             
             print("\n👋 Detection completed!")
 

@@ -12,7 +12,9 @@ import {
   Filter,
   ArrowUp,
   ArrowDown,
-  Minus
+  Minus,
+  Menu,
+  X
 } from 'lucide-react';
 
 interface Transaction {
@@ -139,6 +141,7 @@ const App: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const [detectorStatus, setDetectorStatus] = useState<string>('stopped');
   const [selectedModel, setSelectedModel] = useState<'autoencoder'|'lstm'|'snn'>('autoencoder');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -211,33 +214,126 @@ const App: React.FC = () => {
 
   return (
     <div className="streaming-dashboard">
-      {/* Sidebar */}
-      <aside className="dashboard-sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <Shield className="logo-icon" />
-            <span className="logo-text">NeuroDetect</span>
+      {/* Hamburger Menu Button */}
+      <button 
+        className="menu-toggle-btn"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        style={{
+          position: 'fixed',
+          top: '20px',
+          left: '20px',
+          zIndex: 1001,
+          background: 'rgba(30, 41, 59, 0.9)',
+          border: '1px solid rgba(148, 163, 184, 0.2)',
+          borderRadius: '8px',
+          padding: '10px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Collapsible Sidebar */}
+      <aside 
+        className={`dashboard-sidebar ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: sidebarOpen ? 0 : '-280px',
+          height: '100vh',
+          width: '280px',
+          background: 'rgba(15, 23, 42, 0.95)',
+          borderRight: '1px solid rgba(148, 163, 184, 0.2)',
+          transition: 'left 0.3s ease',
+          zIndex: 1000,
+          overflowY: 'auto'
+        }}
+      >
+        <div className="sidebar-header" style={{ padding: '24px' }}>
+          <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Shield className="logo-icon" style={{ width: '32px', height: '32px', color: '#3b82f6' }} />
+            <span className="logo-text" style={{ fontSize: '20px', fontWeight: 'bold' }}>NeuroDetect</span>
           </div>
         </div>
 
-        <nav className="sidebar-nav">
-          <button className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-            <BarChart3 className="nav-icon" />
+        <nav className="sidebar-nav" style={{ padding: '0 16px' }}>
+          <button 
+            className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('overview')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              width: '100%',
+              background: activeTab === 'overview' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+              color: activeTab === 'overview' ? '#3b82f6' : 'rgba(148, 163, 184, 1)',
+              cursor: 'pointer',
+              marginBottom: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <BarChart3 className="nav-icon" size={20} />
             <span>Overview</span>
           </button>
-          <button className={`nav-item ${activeTab === 'stream' ? 'active' : ''}`} onClick={() => setActiveTab('stream')}>
-            <Activity className="nav-icon" />
+          <button 
+            className={`nav-item ${activeTab === 'stream' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('stream')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              width: '100%',
+              background: activeTab === 'stream' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+              color: activeTab === 'stream' ? '#3b82f6' : 'rgba(148, 163, 184, 1)',
+              cursor: 'pointer',
+              marginBottom: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Activity className="nav-icon" size={20} />
             <span>Live Stream</span>
           </button>
-          <button className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
-            <Server className="nav-icon" />
+          <button 
+            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('analytics')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              width: '100%',
+              background: activeTab === 'analytics' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+              color: activeTab === 'analytics' ? '#3b82f6' : 'rgba(148, 163, 184, 1)',
+              cursor: 'pointer',
+              marginBottom: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Server className="nav-icon" size={20} />
             <span>Analytics</span>
           </button>
         </nav>
       
-        <div className="sidebar-footer">
-          <div className="stream-status">
-            <div className={`status-indicator ${activeTab === 'stream' ? 'streaming' : 'paused'}`}>
+        <div className="sidebar-footer" style={{ padding: '24px', marginTop: 'auto' }}>
+          <div className="stream-status" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className={`status-indicator ${activeTab === 'stream' ? 'streaming' : 'paused'}`} style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: activeTab === 'stream' ? '#10b981' : '#6b7280'
+            }}>
               <div className="status-pulse"></div>
             </div>
             <span>{activeTab === 'stream' ? 'Streaming' : 'Idle'}</span>
@@ -245,61 +341,77 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="dashboard-main">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent/20 rounded-lg">
-                <Shield className="w-8 h-8 text-accent" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">NeuroDetect Dashboard</h1>
-                <p className="text-gray-400">Real-time anomaly detection monitoring</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
-                <AlertTriangle className="w-5 h-5" />
-                <span>Flagged Cases</span>
-                <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">3</span>
-              </button>
-              
-              <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
-                <Settings className="w-5 h-5" />
-                <span>Model Configuration</span>
-              </button>
-              
-              <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
-                <Settings className="w-5 h-5" />
-                <span>System Settings</span>
-              </button>
-            </div>
-          </div>
+      {/* Overlay when sidebar is open */}
+      {sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 999
+          }}
+        />
+      )}
 
-          {/* Model selector */}
-          <div className="mt-4 flex items-center gap-3">
-            <label className="text-sm text-gray-300">Model:</label>
-            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value as any)} className="px-3 py-2 rounded bg-white/5 text-gray-200">
-              <option value="autoencoder">Autoencoder</option>
-              <option value="lstm">LSTM</option>
-              <option value="snn">SNN</option>
-            </select>
-
-            <button onClick={startDetector} className="px-4 py-2 bg-success text-white rounded">Launch Detector</button>
-            <button onClick={stopDetector} className="px-4 py-2 bg-danger text-white rounded">Stop Detector</button>
-            <div className="text-sm text-gray-300">Detector: {detectorStatus}</div>
-          </div>
-        </header>
-
+      <main className="dashboard-main" style={{ marginLeft: 0, paddingLeft: '24px', paddingRight: '24px' }}>
         {/* Content - Conditional rendering based on active tab */}
         {activeTab === 'stream' ? (
-          <div style={{ width: '100%' }}>
+          <div style={{ width: '100%', marginTop: '70px' }}>
             <Streaming />
           </div>
         ) : (
           <>
+            {/* Header */}
+            <header className="mb-8" style={{ marginTop: '70px' }}>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-accent/20 rounded-lg">
+                    <Shield className="w-8 h-8 text-accent" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold">NeuroDetect Dashboard</h1>
+                    <p className="text-gray-400">Real-time anomaly detection monitoring</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
+                    <AlertTriangle className="w-5 h-5" />
+                    <span>Flagged Cases</span>
+                    <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">3</span>
+                  </button>
+                  
+                  <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
+                    <Settings className="w-5 h-5" />
+                    <span>Model Configuration</span>
+                  </button>
+                  
+                  <button className="flex items-center gap-2 px-4 py-2 glass-card rounded-lg hover:bg-white/10 transition-colors">
+                    <Settings className="w-5 h-5" />
+                    <span>System Settings</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Model selector */}
+              <div className="mt-4 flex items-center gap-3">
+                <label className="text-sm text-gray-300">Model:</label>
+                <select value={selectedModel} onChange={e => setSelectedModel(e.target.value as any)} className="px-3 py-2 rounded bg-white/5 text-gray-200">
+                  <option value="autoencoder">Autoencoder</option>
+                  <option value="lstm">LSTM</option>
+                  <option value="snn">SNN</option>
+                </select>
+
+                <button onClick={startDetector} className="px-4 py-2 bg-success text-white rounded">Launch Detector</button>
+                <button onClick={stopDetector} className="px-4 py-2 bg-danger text-white rounded">Stop Detector</button>
+                <div className="text-sm text-gray-300">Detector: {detectorStatus}</div>
+              </div>
+            </header>
+
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <MetricCard
