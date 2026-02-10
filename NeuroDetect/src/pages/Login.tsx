@@ -1,68 +1,101 @@
 import React, { useState } from 'react';
-import bgImg from '../assets/images/bg1.png'; // Vite-compatible import
+import { 
+  Lock, 
+  Mail, 
+  Eye, 
+  EyeOff, 
+  Shield,
+  Brain,
+  AlertCircle,
+  Fingerprint
+} from 'lucide-react';
+import './css/login.css';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      console.log('Login attempt:', { email, password, twoFAEnabled });
+      setIsLoading(false);
+      // In real app, redirect to dashboard
+    }, 1500);
+  };
 
   return (
-    <div
-      className="login-page flex items-center justify-center brightness-55"
-      style={{ backgroundImage: `url(${bgImg})`, }}
-    >
-      <div className="login-card ">
+    <div className="login-container">
+      {/* Background Effects */}
+      <div className="background-effects">
+        <div className="gradient-circle top-left"></div>
+        <div className="gradient-circle bottom-right"></div>
+        <div className="grid-overlay"></div>
+      </div>
+
+      {/* Login Card */}
+      <div className="login-card">
         {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-semibold text-indigo-400 flex items-center justify-center space-x-2">
-            <IconLogo />
-            <span className="italic font-semibold">NeuroDetect</span>
-          </h1>
-          <p className="mt-3 text-white font-bold text-lg">
-            Welcome Back to NeuroDetect
-          </p>
+        <div className="login-header">
+          <div className="logo-container">
+            <div className="logo-icon">
+              <Brain className="logo-svg" />
+              <div className="logo-glow"></div>
+            </div>
+            <div className="logo-text">
+              <h1>NeuroDetect</h1>
+              <p className="tagline">Autoencoder Fraud Detection</p>
+            </div>
+          </div>
+          <div className="security-badge">
+            <Shield size={16} />
+            <span>Secure Login</span>
+          </div>
+        </div>
+
+        {/* Welcome Message */}
+        <div className="welcome-section">
+          <h2>Welcome Back</h2>
+          <p className="subtitle">Sign in to access the fraud detection dashboard</p>
         </div>
 
         {/* Form */}
-        <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
-          {/* Email */}
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-gray-300 font-medium text-sm mb-1"
-            >
-              Email Address
+        <form className="login-form" onSubmit={handleSubmit}>
+          {/* Email Field */}
+          <div className="form-group">
+            <label htmlFor="email" className="form-label">
+              <Mail className="label-icon" size={16} />
+              <span>Email Address</span>
             </label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                <IconEnvelope />
-              </span>
+            <div className="input-container">
               <input
                 type="email"
                 id="email"
-                placeholder="Enter your email"
+                placeholder="admin@neurodetect.ai"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="input-field"
+                className="form-input"
+                disabled={isLoading}
               />
+              <div className="input-border"></div>
             </div>
           </div>
 
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-gray-300 font-medium text-sm mb-1"
-            >
-              Password
+          {/* Password Field */}
+          <div className="form-group">
+            <label htmlFor="password" className="form-label">
+              <Lock className="label-icon" size={16} />
+              <span>Password</span>
             </label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                <IconLock />
-              </span>
+            <div className="input-container">
               <input
                 type={passwordVisible ? 'text' : 'password'}
                 id="password"
@@ -71,154 +104,129 @@ const Login: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="input-field pr-10"
+                className="form-input"
+                disabled={isLoading}
               />
+              <div className="input-border"></div>
               <button
                 type="button"
                 aria-label={passwordVisible ? 'Hide password' : 'Show password'}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-200"
+                className="password-toggle"
                 onClick={() => setPasswordVisible(!passwordVisible)}
+                disabled={isLoading}
               >
-                {passwordVisible ? <IconEyeOff /> : <IconEye />}
+                {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
 
-          {/* Forgot Password */}
-          <div className="text-right">
-            <a
-              href="#"
-              className="text-indigo-400 text-sm hover:underline"
-            >
+          {/* Options Row */}
+          <div className="options-row">
+            <label className="checkbox-label">
+              <input type="checkbox" className="checkbox-input" />
+              <span className="checkbox-custom"></span>
+              <span className="checkbox-text">Remember me</span>
+            </label>
+            <a href="#" className="forgot-link">
               Forgot password?
             </a>
           </div>
 
           {/* 2FA Toggle */}
-          <div className="flex items-center justify-between mt-2">
-            <label
-              htmlFor="toggle-2fa"
-              className="text-gray-300 text-sm cursor-pointer select-none"
-            >
-              Enable Two-Factor Authentication (2FA)
-            </label>
+          <div className="twofa-section">
+            <div className="twofa-header">
+              <Fingerprint className="twofa-icon" size={18} />
+              <div>
+                <div className="twofa-title">Two-Factor Authentication</div>
+                <div className="twofa-subtitle">Enhanced security for your account</div>
+              </div>
+            </div>
             <ToggleSwitch
-              id="toggle-2fa"
               enabled={twoFAEnabled}
               setEnabled={setTwoFAEnabled}
+              disabled={isLoading}
             />
           </div>
 
           {/* Login Button */}
           <button
             type="submit"
-            className="w-full mt-6 bg-indigo-500 hover:bg-indigo-600 transition rounded px-4 py-3 text-white font-semibold"
+            className={`login-button ${isLoading ? 'loading' : ''}`}
+            disabled={isLoading}
           >
-            Secure Login
+            {isLoading ? (
+              <div className="button-loader">
+                <div className="spinner"></div>
+                <span>Authenticating...</span>
+              </div>
+            ) : (
+              <>
+                <Shield className="button-icon" size={18} />
+                <span>Secure Login</span>
+              </>
+            )}
           </button>
+
+          {/* Divider */}
+          <div className="divider">
+            <span className="divider-text">or continue with</span>
+          </div>
+
+          {/* Social Login */}
+          <div className="social-login">
+            <button type="button" className="social-button google" disabled={isLoading}>
+              <svg className="social-icon" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+              Google
+            </button>
+            <button type="button" className="social-button microsoft" disabled={isLoading}>
+              <svg className="social-icon" viewBox="0 0 24 24">
+                <path d="M0 0h11v11H0zM13 0h11v11H13zM0 13h11v11H0zM13 13h11v11H13z" fill="#7FBA00"/>
+              </svg>
+              Microsoft
+            </button>
+          </div>
         </form>
 
-        {/* Signup Link */}
-        <p className="mt-6 text-center text-gray-400 text-sm">
-          Don&apos;t have an account?{' '}
-          <a href="#" className="text-indigo-400 hover:underline font-medium">
-            Sign up
-          </a>
-        </p>
+        {/* Footer */}
+        <div className="login-footer">
+          <p className="signup-text">
+            Don't have an account?{' '}
+            <a href="#" className="signup-link">
+              Request access
+            </a>
+          </p>
+          <div className="security-info">
+            <AlertCircle size={14} />
+            <span>All connections are encrypted with TLS 1.3</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
 interface ToggleSwitchProps {
-  id: string;
   enabled: boolean;
   setEnabled: (enabled: boolean) => void;
+  disabled?: boolean;
 }
 
-const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ id, enabled, setEnabled }) => (
+const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ enabled, setEnabled, disabled }) => (
   <button
     type="button"
     role="switch"
     aria-checked={enabled}
-    aria-labelledby={id}
-    onClick={() => setEnabled(!enabled)}
-    className={`toggle-switch ${enabled ? 'toggle-switch-enabled' : ''}`}
+    onClick={() => !disabled && setEnabled(!enabled)}
+    className={`toggle-switch ${enabled ? 'enabled' : ''} ${disabled ? 'disabled' : ''}`}
+    disabled={disabled}
   >
     <span className="toggle-thumb" />
   </button>
-);
-
-/* Icons */
-
-const IconLogo: React.FC = () => (
-  <svg
-    width="24"
-    height="24"
-    fill="none"
-    stroke="#8b84ff"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    <path d="M12 2v20M2 12h20M4.5 4.5l15 15M4.5 19.5l15-15" />
-  </svg>
-);
-
-const IconEnvelope: React.FC = () => (
-  <svg
-    className="icon"
-    fill="none"
-    stroke="currentColor"
-    width={16}
-    height={16}
-    viewBox="0 0 24 24"
-  >
-    <polyline points="22,6 12,13 2,6" />
-  </svg>
-);
-
-const IconLock: React.FC = () => (
-  <svg
-    className="icon"
-    fill="none"
-    stroke="currentColor"
-    width={16}
-    height={16}
-    viewBox="0 0 24 24"
-  >
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </svg>
-);
-
-const IconEye: React.FC = () => (
-  <svg
-    className="icon"
-    fill="none"
-    stroke="currentColor"
-    width={16}
-    height={16}
-    viewBox="0 0 24 24"
-  >
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const IconEyeOff: React.FC = () => (
-  <svg
-    className="icon"
-    fill="none"
-    stroke="currentColor"
-    width={16}
-    height={16}
-    viewBox="0 0 24 24"
-  >
-    <path d="M17.94 17.94a10.03 10.03 0 0 1-5.94 2.06C6.06 20 2 12 2 12s1.73-3.7 5-6.2M9.88 9.88l4.24 4.24M1 1l22 22" />
-  </svg>
 );
 
 export default Login;

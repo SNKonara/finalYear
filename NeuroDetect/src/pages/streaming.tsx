@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Play, 
   Pause, 
@@ -28,7 +29,8 @@ import {
   ZapOff,
   ExternalLink,
   Menu,
-  X
+  X,
+  ArrowLeft
 } from 'lucide-react';
 import './css/streaming.css';
 
@@ -56,11 +58,10 @@ interface StreamingStats {
 }
 
 const Streaming: React.FC = () => {
-  // WebSocket state
-  const [socket, setSocket] = useState<WebSocket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const navigate = useNavigate();
+  
+  // Streaming state (synced from aereal page)
   const [isStreaming, setIsStreaming] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   
   // Data state
   const [records, setRecords] = useState<StreamingRecord[]>([]);
@@ -86,227 +87,129 @@ const Streaming: React.FC = () => {
   // Refs
   const recordsRef = useRef<StreamingRecord[]>([]);
   const statsRef = useRef<StreamingStats>(stats);
-  const wsRef = useRef<WebSocket | null>(null);
 
-  // Sync streaming state across pages using localStorage
+  // Sync streaming state and data from aereal page via localStorage
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
+      // Sync streaming status
       if (e.key === 'fraud_detection_streaming') {
         const newState = e.newValue === 'true';
         setIsStreaming(newState);
-        
-        // Send the appropriate command to the WebSocket
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          if (newState && !isStreaming) {
-            wsRef.current.send(JSON.stringify({ command: 'start_stream' }));
-          } else if (!newState && isStreaming) {
-            wsRef.current.send(JSON.stringify({ command: 'stop_stream' }));
+      }
+      
+      // Sync transaction data
+      if (e.key === 'fraud_detection_data') {
+        try {
+          const data = JSON.parse(e.newValue || '[]');
+          if (Array.isArray(data)) {
+            setRecords(data);
+            recordsRef.current = data;
+            
+            // Update stats based on received data
+            updateStatsFromRecords(data);
           }
+        } catch (error) {
+          console.error('Error parsing fraud detection data:', error);
         }
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     
-    // Check initial state from localStorage
-    const savedState = localStorage.getItem('fraud_detection_streaming');
-    if (savedState !== null) {
-      const streamingState = savedState === 'true';
-      setIsStreaming(streamingState);
+    // Load initial state from localStorage
+    const savedStreamingState = localStorage.getItem('fraud_detection_streaming');
+    if (savedStreamingState !== null) {
+      setIsStreaming(savedStreamingState === 'true');
     }
+    
+    const savedData = localStorage.getItem('fraud_detection_data');
+    if (savedData) {
+      try {
+        const data = JSON.parse(savedData);
+        if (Array.isArray(data)) {
+          setRecords(data);
+          recordsRef.current = data;
+          updateStatsFromRecords(data);
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      }
+    }
+
+    // Poll for data updates (fallback for same-window updates)
+    const pollInterval = setInterval(() => {
+      const currentData = localStorage.getItem('fraud_detection_data');
+      if (currentData) {
+        try {
+          const data = JSON.parse(currentData);
+          if (Array.isArray(data) && JSON.stringify(data) !== JSON.stringify(recordsRef.current)) {
+            setRecords(data);
+            recordsRef.current = data;
+            updateStatsFromRecords(data);
+          }
+        } catch (error) {
+          // Ignore parsing errors
+        }
+      }
+    }, 500);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [isStreaming]);
-
-  // Initialize WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      setConnectionStatus('connecting');
-      
-      const ws = new WebSocket('ws://localhost:8765');
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setIsConnected(true);
-        setConnectionStatus('connected');
-        checkServerStatus();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          handleWebSocketMessage(data);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
-        setIsConnected(false);
-        setIsStreaming(false);
-        setConnectionStatus('disconnected');
-        localStorage.setItem('fraud_detection_streaming', 'false');
-        
-        // Attempt to reconnect after 3 seconds
-        setTimeout(() => {
-          if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-            connectWebSocket();
-          }
-        }, 3000);
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      setSocket(ws);
-    };
-
-    connectWebSocket();
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      clearInterval(pollInterval);
     };
   }, []);
 
-  // Handle WebSocket messages
-  const handleWebSocketMessage = useCallback((data: any) => {
-    // Control messages (server responses)
-    if (data.response === 'pong') {
-      console.log('PONG from server', data);
+  // Update statistics from records data
+  const updateStatsFromRecords = useCallback((data: any[]) => {
+    if (!data || data.length === 0) {
+      setStats({
+        totalReceived: 0,
+        fraudCount: 0,
+        normalCount: 0,
+        totalAmount: 0,
+        avgAmount: 0,
+        categories: new Map(),
+        fraudRate: 0
+      });
       return;
     }
 
-    if (data.error) {
-      console.error('Server error:', data.error);
-      return;
-    }
+    const fraudCount = data.filter(r => r.is_fraud).length;
+    const normalCount = data.length - fraudCount;
+    const totalAmount = data.reduce((sum, r) => sum + (r.transaction_data?.amt || r.amount || 0), 0);
+    const avgAmount = totalAmount / data.length;
+    const fraudRate = (fraudCount / data.length) * 100;
 
-    // Status / control payload from server
-    if (typeof data.streaming === 'boolean' || data.status || data.speed || data.stream_speed) {
-      if (typeof data.streaming === 'boolean') {
-        setIsStreaming(data.streaming);
-        localStorage.setItem('fraud_detection_streaming', data.streaming.toString());
-      }
-      if (data.status === 'stopped') {
-        setIsStreaming(false);
-        localStorage.setItem('fraud_detection_streaming', 'false');
-      }
-      if (data.status === 'already_streaming') {
-        setIsStreaming(true);
-        localStorage.setItem('fraud_detection_streaming', 'true');
-      }
-      const newSpeed = data.speed ?? data.stream_speed;
-      if (newSpeed) {
-        setStreamSpeed(newSpeed);
-      }
-
-      console.log('Control message:', data);
-      return;
-    }
-
-    // This is a data record
-    const newRecord: StreamingRecord = {
-      transaction_id: data.transaction_id || `TXN_${Date.now()}`,
-      stream_index: data.stream_index || 0,
-      stream_timestamp: data.stream_timestamp || new Date().toISOString(),
-      is_fraud: data.is_fraud || false,
-      amount: data.amount || data.transaction_amt || 0,
-      category: data.category || data.merchant_category || 'Unknown',
-      gender: data.gender || 'Unknown',
-      merchant: data.merchant || data.merchant_name || 'Unknown Merchant',
-      location: data.location || data.city || data.state || 'Unknown',
-      ...data
-    };
-
-    // Update records with new record at the beginning
-    const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
-    recordsRef.current = updatedRecords;
-    setRecords(updatedRecords);
-
-    // Update statistics
-    updateStats(newRecord);
-  }, [maxRecords]);
-
-  // Update statistics
-  const updateStats = useCallback((record: StreamingRecord) => {
-    setStats(prev => {
-      const newTotal = prev.totalReceived + 1;
-      const newFraudCount = prev.fraudCount + (record.is_fraud ? 1 : 0);
-      const newNormalCount = prev.normalCount + (record.is_fraud ? 0 : 1);
-      const newTotalAmount = prev.totalAmount + (record.amount || 0);
-      const newAvgAmount = newTotalAmount / newTotal;
-      const newFraudRate = (newFraudCount / newTotal) * 100;
-
-      // Update category count
-      const newCategories = new Map(prev.categories);
-      const category = record.category || 'Unknown';
-      newCategories.set(category, (newCategories.get(category) || 0) + 1);
-
-      const newStats = {
-        totalReceived: newTotal,
-        fraudCount: newFraudCount,
-        normalCount: newNormalCount,
-        totalAmount: newTotalAmount,
-        avgAmount: newAvgAmount,
-        categories: newCategories,
-        fraudRate: newFraudRate
-      };
-
-      statsRef.current = newStats;
-      return newStats;
+    const categoryMap = new Map<string, number>();
+    data.forEach(r => {
+      const category = r.transaction_data?.category || r.category || 'N/A';
+      categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
     });
+
+    setStats({
+      totalReceived: data.length,
+      fraudCount,
+      normalCount,
+      totalAmount,
+      avgAmount,
+      categories: categoryMap,
+      fraudRate
+    });
+    
+    statsRef.current = {
+      totalReceived: data.length,
+      fraudCount,
+      normalCount,
+      totalAmount,
+      avgAmount,
+      categories: categoryMap,
+      fraudRate
+    };
   }, []);
-
-  // WebSocket commands
-  const sendCommand = useCallback((command: string, data?: any) => {
-    if (!wsRef.current) {
-      console.warn('WebSocket not initialized — cannot send command:', command);
-      return;
-    }
-
-    if (wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not open — current state:', wsRef.current.readyState);
-      try {
-        wsRef.current.send(JSON.stringify({ command, ...data }));
-      } catch (err) {
-        console.error('Failed to send command, socket not open:', err);
-      }
-      return;
-    }
-
-    wsRef.current.send(JSON.stringify({ command, ...data }));
-  }, []);
-
-  const startStreaming = () => {
-    setIsStreaming(true);
-    localStorage.setItem('fraud_detection_streaming', 'true');
-    sendCommand('start_stream');
-  };
-
-  const stopStreaming = () => {
-    setIsStreaming(false);
-    localStorage.setItem('fraud_detection_streaming', 'false');
-    sendCommand('stop_stream');
-  };
-
-  const checkServerStatus = () => {
-    sendCommand('get_status');
-  };
 
   const updateStreamSpeed = (speed: number) => {
     setStreamSpeed(speed);
-    sendCommand('set_speed', { speed });
-  };
-
-  const pingServer = () => {
-    sendCommand('ping');
+    localStorage.setItem('fraud_detection_speed', speed.toString());
   };
 
   // Filter records based on search and filters
@@ -475,67 +378,49 @@ const Streaming: React.FC = () => {
       )}
 
       <main className="dashboard-main" style={{ marginLeft: 0, paddingLeft: '24px', paddingRight: '24px' }}>
-        {/* Control Bar */}
-        
-        <div className="top-bar" style={{ marginTop: '70px', marginBottom: '24px' }}>
-          <div className="top-bar-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button 
-              className="action-btn test-btn"
-              onClick={pingServer}
+        {/* Stream Status Header */}
+        <div className="top-bar" style={{ marginTop: '70px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="top-bar-info" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => navigate('/')}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '10px 16px',
+                padding: '8px 16px',
                 background: 'rgba(30, 41, 59, 0.9)',
                 border: '1px solid rgba(148, 163, 184, 0.2)',
                 borderRadius: '8px',
-                cursor: 'pointer'
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: '500',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = 'rgba(30, 41, 59, 1)';
+                e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.4)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'rgba(30, 41, 59, 0.9)';
+                e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.2)';
               }}
             >
-              <Network className="btn-icon" size={18} />
-              <span>Test Connection</span>
+              <ArrowLeft size={18} />
+              <span>Back to Dashboard</span>
             </button>
-            
-            <div className="control-buttons" style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className={`stream-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
-                onClick={startStreaming}
-                disabled={!isConnected || isStreaming}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 16px',
-                  background: isConnected && !isStreaming ? '#10b981' : 'rgba(30, 41, 59, 0.5)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: isConnected && !isStreaming ? 'pointer' : 'not-allowed',
-                  color: '#fff'
-                }}
-              >
-                <Play className="btn-icon" size={18} />
-                <span>Start</span>
-              </button>
-              <button
-                className={`stream-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
-                onClick={stopStreaming}
-                disabled={!isConnected || !isStreaming}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 16px',
-                  background: isConnected && isStreaming ? '#ef4444' : 'rgba(30, 41, 59, 0.5)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: isConnected && isStreaming ? 'pointer' : 'not-allowed',
-                  color: '#fff'
-                }}
-              >
-                <Pause className="btn-icon" size={18} />
-                <span>Stop</span>
-              </button>
+            <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>Live Transaction Stream</h1>
+            <div className="stream-indicator" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className={`live-dot ${isStreaming ? 'streaming' : ''}`} style={{
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                background: isStreaming ? '#10b981' : '#64748b',
+                animation: isStreaming ? 'pulse 2s infinite' : 'none'
+              }}></div>
+              <span style={{ color: '#94a3b8', fontSize: '14px' }}>
+                {isStreaming ? 'Streaming Active' : 'Stream Paused'}
+              </span>
             </div>
           </div>
         </div>
@@ -877,14 +762,14 @@ const Streaming: React.FC = () => {
               
               <div className="status-list">
                 <div className="status-item">
-                  <span className="status-label">WebSocket</span>
-                  <div className={`status-value ${isConnected ? 'online' : 'offline'}`}>
-                    {isConnected ? 'Connected' : 'Disconnected'}
+                  <span className="status-label">Data Source</span>
+                  <div className={`status-value ${records.length > 0 ? 'online' : 'offline'}`}>
+                    {records.length > 0 ? 'Receiving' : 'Waiting'}
                   </div>
                 </div>
 
                 <div className="status-item">
-                  <span className="status-label">Stream Engine</span>
+                  <span className="status-label">Stream Status</span>
                   <div className={`status-value ${isStreaming ? 'active' : 'inactive'}`}>
                     {isStreaming ? 'Active' : 'Inactive'}
                   </div>
@@ -905,9 +790,9 @@ const Streaming: React.FC = () => {
                 </div>
 
                 <div className="status-item">
-                  <span className="status-label">Latency</span>
+                  <span className="status-label">Update Rate</span>
                   <div className="status-value">
-                    {isConnected ? '< 50ms' : '--'}
+                    {isStreaming ? 'Real-time' : '--'}
                   </div>
                 </div>
               </div>

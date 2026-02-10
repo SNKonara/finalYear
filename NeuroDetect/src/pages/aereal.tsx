@@ -45,6 +45,13 @@ import {
 } from 'lucide-react';
 import './css/aereal.css';
 
+// Global WebSocket reference to persist across component remounts
+declare global {
+  interface Window {
+    fraudDetectionWS?: WebSocket;
+  }
+}
+
 interface FraudDetectionRecord {
   transaction_id: string;
   transaction_data: any;
@@ -67,6 +74,17 @@ interface ModelStats {
   throughput_tps: number;
   fraud_rate: number;
   success_rate: number;
+  risk_distribution?: {
+    Low: number;
+    Medium: number;
+    High: number;
+  };
+  prediction_history?: Array<{
+    error: number;
+    is_fraud: boolean;
+    risk: string;
+    timestamp: string;
+  }>;
 }
 
 interface ModelInfo {
@@ -76,6 +94,9 @@ interface ModelInfo {
   device: string;
   expected_features: number;
   feature_names: string[];
+  num_features?: number;
+  top_categories?: string[];
+  category_columns?: string[];
 }
 
 const FraudDetectionDashboard: React.FC = () => {
@@ -97,7 +118,9 @@ const FraudDetectionDashboard: React.FC = () => {
     avg_processing_time: 0,
     throughput_tps: 0,
     fraud_rate: 0,
-    success_rate: 0
+    success_rate: 0,
+    risk_distribution: { Low: 0, Medium: 0, High: 0 },
+    prediction_history: []
   });
   
   const [modelInfo, setModelInfo] = useState<ModelInfo>({
@@ -106,12 +129,15 @@ const FraudDetectionDashboard: React.FC = () => {
     threshold: 0,
     device: 'cpu',
     expected_features: 0,
-    feature_names: []
+    feature_names: [],
+    num_features: 0,
+    top_categories: [],
+    category_columns: []
   });
 
   // UI state
   const [streamSpeed, setStreamSpeed] = useState(1);
-  const [maxRecords, setMaxRecords] = useState(50);
+  const [maxRecords, setMaxRecords] = useState(500);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState('all');
   const [showFraudOnly, setShowFraudOnly] = useState(false);
@@ -158,21 +184,7 @@ const FraudDetectionDashboard: React.FC = () => {
 
   // Initialize WebSocket connection
   useEffect(() => {
-    const connectWebSocket = () => {
-      setConnectionStatus('connecting');
-      
-      const ws = new WebSocket('ws://localhost:8765');
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('✅ WebSocket connected');
-        setIsConnected(true);
-        setConnectionStatus('connected');
-        
-        // Request model info
-        sendCommand('get_model_info');
-      };
-
+    const setupWebSocketHandlers = (ws: WebSocket) => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -189,9 +201,14 @@ const FraudDetectionDashboard: React.FC = () => {
         setConnectionStatus('disconnected');
         localStorage.setItem('fraud_detection_streaming', 'false');
         
+        // Clear global reference
+        if (window.fraudDetectionWS === ws) {
+          window.fraudDetectionWS = undefined;
+        }
+        
         // Attempt to reconnect after 3 seconds
         setTimeout(() => {
-          if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+          if (!window.fraudDetectionWS || window.fraudDetectionWS.readyState === WebSocket.CLOSED) {
             connectWebSocket();
           }
         }, 3000);
@@ -200,6 +217,51 @@ const FraudDetectionDashboard: React.FC = () => {
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
       };
+    };
+
+    const connectWebSocket = () => {
+      // Check if there's already an active WebSocket connection
+      if (window.fraudDetectionWS && window.fraudDetectionWS.readyState === WebSocket.OPEN) {
+        console.log('Reusing existing WebSocket connection');
+        wsRef.current = window.fraudDetectionWS;
+        setSocket(window.fraudDetectionWS);
+        setIsConnected(true);
+        setConnectionStatus('connected');
+        
+        // Re-attach event handlers for this component instance
+        setupWebSocketHandlers(window.fraudDetectionWS);
+        return;
+      }
+
+      // Close any existing but non-functional WebSocket
+      if (window.fraudDetectionWS) {
+        try {
+          window.fraudDetectionWS.close();
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+
+      setConnectionStatus('connecting');
+      
+      const ws = new WebSocket('ws://localhost:8765');
+      wsRef.current = ws;
+      window.fraudDetectionWS = ws; // Store globally
+
+      ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        setIsConnected(true);
+        setConnectionStatus('connected');
+        
+        // Request model info
+        sendCommand('get_model_info');
+        
+        // Request status
+        sendCommand('get_status');
+      };
+
+      // Set up event handlers
+      setupWebSocketHandlers(ws);
 
       setSocket(ws);
     };
@@ -207,11 +269,28 @@ const FraudDetectionDashboard: React.FC = () => {
     connectWebSocket();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
+      // Only close WebSocket if not streaming (check localStorage for current state)
+      const currentStreamingState = localStorage.getItem('fraud_detection_streaming');
+      if (window.fraudDetectionWS && currentStreamingState !== 'true') {
+        console.log('Closing WebSocket - streaming is not active');
+        window.fraudDetectionWS.close();
+        window.fraudDetectionWS = undefined;
+      } else {
+        console.log('Keeping WebSocket alive - streaming is active');
       }
     };
   }, []);
+
+  // Periodically request statistics from server
+  useEffect(() => {
+    if (!isConnected || !isStreaming) return;
+
+    const statsInterval = setInterval(() => {
+      sendCommand('get_stats');
+    }, 5000); // Request stats every 5 seconds
+
+    return () => clearInterval(statsInterval);
+  }, [isConnected, isStreaming]);
 
   // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((data: any) => {
@@ -234,7 +313,10 @@ const FraudDetectionDashboard: React.FC = () => {
         threshold: data.model_info.threshold || 0,
         device: data.model_info.device || 'cpu',
         expected_features: data.model_info.expected_features || 0,
-        feature_names: data.model_info.feature_names || []
+        feature_names: data.model_info.feature_names || [],
+        num_features: data.model_info.num_features || data.model_info.input_dim || 0,
+        top_categories: data.model_info.top_categories || [],
+        category_columns: data.model_info.category_columns || []
       });
       return;
     }
@@ -274,30 +356,47 @@ const FraudDetectionDashboard: React.FC = () => {
       return;
     }
 
-    // This is a fraud detection result
-    const newRecord: FraudDetectionRecord = {
-      transaction_id: data.transaction_id || `TXN_${Date.now()}`,
-      transaction_data: data.transaction_data || {},
-      reconstruction_error: data.reconstruction_error || 0,
-      threshold: data.threshold || modelInfo.threshold,
-      is_fraud: data.is_fraud || false,
-      fraud_probability: data.fraud_probability || 0,
-      risk_level: data.risk_level || 'Low',
-      processing_time_ms: data.processing_time_ms || 0,
-      timestamp: data.timestamp || new Date().toISOString(),
-      ...data
-    };
+    // Check if this is a fraud detection result (has reconstruction_error or is_fraud field)
+    if (data.reconstruction_error !== undefined || data.is_fraud !== undefined || data.transaction_id) {
+      // Log every 10th record to avoid console spam
+      if (recordsRef.current.length % 10 === 0) {
+        console.log('📊 Fraud detection result:', {
+          id: data.transaction_id,
+          is_fraud: data.is_fraud,
+          error: data.reconstruction_error,
+          risk: data.risk_level,
+          total_records: recordsRef.current.length
+        });
+      }
 
-    // Update records
-    const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
-    recordsRef.current = updatedRecords;
-    setRecords(updatedRecords);
+      // This is a fraud detection result
+      const newRecord: FraudDetectionRecord = {
+        transaction_id: data.transaction_id || `TXN_${Date.now()}`,
+        transaction_data: data.transaction_data || data,
+        reconstruction_error: data.reconstruction_error || 0,
+        threshold: data.threshold || modelInfo.threshold,
+        is_fraud: data.is_fraud === true || data.is_fraud === 1,
+        fraud_probability: data.fraud_probability || 0,
+        risk_level: data.risk_level || 'Low',
+        processing_time_ms: data.processing_time_ms || 0,
+        timestamp: data.timestamp || data.stream_timestamp || new Date().toISOString(),
+        ...data
+      };
 
-    // Update error history
-    setErrorHistory(prev => [...prev.slice(-49), newRecord.reconstruction_error]);
+      // Update records
+      const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
+      recordsRef.current = updatedRecords;
+      setRecords(updatedRecords);
+      
+      // Publish data to localStorage for streaming page
+      localStorage.setItem('fraud_detection_data', JSON.stringify(updatedRecords));
 
-    // Update statistics
-    updateStats(newRecord);
+      // Update error history
+      setErrorHistory(prev => [...prev.slice(-49), newRecord.reconstruction_error]);
+
+      // Update statistics
+      updateStats(newRecord);
+    }
   }, [maxRecords, modelInfo.threshold]);
 
   // Update statistics
@@ -325,17 +424,20 @@ const FraudDetectionDashboard: React.FC = () => {
 
   // WebSocket commands
   const sendCommand = useCallback((command: string, data?: any) => {
-    if (!wsRef.current) {
+    // Use wsRef.current or fall back to global reference
+    const ws = wsRef.current || window.fraudDetectionWS;
+    
+    if (!ws) {
       console.warn('WebSocket not initialized');
       return;
     }
 
-    if (wsRef.current.readyState !== WebSocket.OPEN) {
+    if (ws.readyState !== WebSocket.OPEN) {
       console.warn('WebSocket not open');
       return;
     }
 
-    wsRef.current.send(JSON.stringify({ command, ...data }));
+    ws.send(JSON.stringify({ command, ...data }));
   }, []);
 
   const startStreaming = () => {
@@ -366,8 +468,13 @@ const FraudDetectionDashboard: React.FC = () => {
       avg_processing_time: 0,
       throughput_tps: 0,
       fraud_rate: 0,
-      success_rate: 0
+      success_rate: 0,
+      risk_distribution: { Low: 0, Medium: 0, High: 0 },
+      prediction_history: []
     });
+    
+    // Clear data in localStorage for streaming page
+    localStorage.setItem('fraud_detection_data', JSON.stringify([]));
   };
 
   // Filter records
@@ -384,12 +491,17 @@ const FraudDetectionDashboard: React.FC = () => {
     return matchesSearch && matchesRisk && matchesFraudFilter;
   });
 
-  // Get risk distribution
-  const riskDistribution = {
-    Low: records.filter(r => r.risk_level === 'Low').length,
-    Medium: records.filter(r => r.risk_level === 'Medium').length,
-    High: records.filter(r => r.risk_level === 'High').length
-  };
+  // Get risk distribution - use server data if available, otherwise calculate from local records
+  const riskDistribution = modelStats.risk_distribution && 
+    (modelStats.risk_distribution.Low > 0 || 
+     modelStats.risk_distribution.Medium > 0 || 
+     modelStats.risk_distribution.High > 0)
+    ? modelStats.risk_distribution
+    : {
+        Low: records.filter(r => r.risk_level === 'Low').length,
+        Medium: records.filter(r => r.risk_level === 'Medium').length,
+        High: records.filter(r => r.risk_level === 'High').length
+      };
 
   // Format reconstruction error
   const formatError = (error: number) => {
@@ -579,7 +691,7 @@ const FraudDetectionDashboard: React.FC = () => {
                 onClick={() => navigate('/streaming')}
               >
                 <Network className="btn-icon" />
-                <span>Test</span>
+                <span>View</span>
               </button>
               
               <button
@@ -698,24 +810,33 @@ const FraudDetectionDashboard: React.FC = () => {
               <PieChart className="card-icon" />
             </div>
             <div className="risk-distribution">
-              {Object.entries(riskDistribution).map(([risk, count]) => (
-                <div key={risk} className="risk-item">
-                  <div className="risk-info">
-                    <div className="risk-dot" style={{ backgroundColor: getRiskColor(risk) }}></div>
-                    <span className="risk-label">{risk}</span>
-                    <span className="risk-count">{count}</span>
+              {Object.entries(riskDistribution).map(([risk, count]) => {
+                const totalCount = Object.values(riskDistribution).reduce((sum, c) => sum + c, 0);
+                const percentage = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={risk} className="risk-item">
+                    <div className="risk-info">
+                      <div className="risk-dot" style={{ backgroundColor: getRiskColor(risk) }}></div>
+                      <span className="risk-label">{risk}</span>
+                      <span className="risk-count">{count} ({percentage}%)</span>
+                    </div>
+                    <div className="risk-bar">
+                      <div 
+                        className="risk-fill"
+                        style={{ 
+                          width: `${percentage}%`,
+                          backgroundColor: getRiskColor(risk)
+                        }}
+                      ></div>
+                    </div>
                   </div>
-                  <div className="risk-bar">
-                    <div 
-                      className="risk-fill"
-                      style={{ 
-                        width: `${(count / Math.max(records.length, 1)) * 100}%`,
-                        backgroundColor: getRiskColor(risk)
-                      }}
-                    ></div>
-                  </div>
+                );
+              })}
+              {Object.values(riskDistribution).reduce((sum, c) => sum + c, 0) === 0 && (
+                <div style={{ padding: '1rem', textAlign: 'center', opacity: 0.5 }}>
+                  No predictions yet. Start streaming to see risk distribution.
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -798,12 +919,22 @@ const FraudDetectionDashboard: React.FC = () => {
                     <span className="info-value">{modelInfo.device.toUpperCase()}</span>
                   </div>
                   <div className="info-item">
+                    <span className="info-label">Total Features:</span>
+                    <span className="info-value">{modelInfo.num_features || modelInfo.expected_features}</span>
+                  </div>
+                  <div className="info-item" style={{ gridColumn: '1 / -1' }}>
                     <span className="info-label">Feature Names:</span>
-                    <span className="info-value">
-                      {modelInfo.feature_names?.slice(0, 3).join(', ')}
-                      {modelInfo.feature_names?.length > 3 && '...'}
+                    <span className="info-value" title={modelInfo.feature_names?.join(', ')}>
+                      {modelInfo.feature_names?.slice(0, 5).join(', ')}
+                      {modelInfo.feature_names?.length > 5 && ` ... +${modelInfo.feature_names.length - 5} more`}
                     </span>
                   </div>
+                  {modelInfo.top_categories && modelInfo.top_categories.length > 0 && (
+                    <div className="info-item" style={{ gridColumn: '1 / -1' }}>
+                      <span className="info-label">Categories:</span>
+                      <span className="info-value">{modelInfo.top_categories.join(', ')}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -852,9 +983,9 @@ const FraudDetectionDashboard: React.FC = () => {
 
                   <button
                     className="filter-btn"
-                    onClick={() => setMaxRecords(prev => prev === 50 ? 100 : 50)}
+                    onClick={() => setMaxRecords(prev => prev === 500 ? 100 : 500)}
                   >
-                    <span>Show {maxRecords === 50 ? 'More' : 'Less'}</span>
+                    <span>Limit: {maxRecords}</span>
                   </button>
                 </div>
               </div>
@@ -863,14 +994,14 @@ const FraudDetectionDashboard: React.FC = () => {
               <div className="detections-table">
                 <div className="table-header">
                   <div className="table-col">Transaction ID</div>
-                  <div className="table-col">Reconstruction Error</div>
+                  <div className="table-col">Encoder Output</div>
                   <div className="table-col">Risk Level</div>
-                  <div className="table-col">Fraud</div>
-                  <div className="table-col">Processing Time</div>
+                  <div className="table-col">Fraud Status</div>
+                  <div className="table-col">Probability</div>
                 </div>
                 
                 <div className="table-body">
-                  {filteredRecords.slice(0, 8).map((record, index) => (
+                  {filteredRecords.slice(0, 20).map((record, index) => (
                     <div 
                       key={`${record.transaction_id}-${index}`}
                       className={`table-row ${record.risk_level.toLowerCase()}`}
@@ -883,8 +1014,11 @@ const FraudDetectionDashboard: React.FC = () => {
                       </div>
                       <div className="table-col">
                         <div className="error-display">
-                          <div className="error-value">
+                          <div className="error-value" title={`Reconstruction Error: ${record.reconstruction_error}`}>
                             {formatError(record.reconstruction_error)}
+                          </div>
+                          <div className="error-threshold" style={{ fontSize: '0.7em', opacity: 0.6 }}>
+                            vs {formatError(record.threshold)}
                           </div>
                           <div className="error-bar">
                             <div 
@@ -904,6 +1038,9 @@ const FraudDetectionDashboard: React.FC = () => {
                         >
                           {record.risk_level}
                         </div>
+                        <div style={{ fontSize: '0.7em', marginTop: '4px', opacity: 0.7 }}>
+                          {record.processing_time_ms.toFixed(2)} ms
+                        </div>
                       </div>
                       <div className="table-col">
                         {record.is_fraud ? (
@@ -919,8 +1056,19 @@ const FraudDetectionDashboard: React.FC = () => {
                         )}
                       </div>
                       <div className="table-col">
-                        <div className="processing-time">
-                          {record.processing_time_ms.toFixed(2)} ms
+                        <div className="fraud-probability">
+                          <div className="probability-value">
+                            {(record.fraud_probability * 100).toFixed(1)}%
+                          </div>
+                          <div className="probability-bar">
+                            <div 
+                              className="probability-fill"
+                              style={{ 
+                                width: `${Math.min(record.fraud_probability * 100, 100)}%`,
+                                backgroundColor: getRiskColor(record.risk_level)
+                              }}
+                            ></div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -929,7 +1077,7 @@ const FraudDetectionDashboard: React.FC = () => {
               </div>
 
               <div className="table-footer">
-                <span>Showing {Math.min(filteredRecords.length, 8)} of {records.length} records</span>
+                <span>Showing {Math.min(filteredRecords.length, 20)} of {records.length} records (Total processed: {modelStats.total_processed})</span>
                 <span>Last updated: {records[0]?.timestamp ? new Date(records[0].timestamp).toLocaleTimeString() : '--:--:--'}</span>
               </div>
             </div>
@@ -1009,30 +1157,39 @@ const FraudDetectionDashboard: React.FC = () => {
             {/* Feature Importance */}
             <div className="content-card">
               <div className="card-header">
-                <h2>Feature Importance</h2>
+                <h2>Top Features</h2>
                 <BarChart className="card-icon" />
               </div>
               
               <div className="features-list">
-                {modelInfo.feature_names?.slice(0, 6).map((feature, index) => (
-                  <div key={feature} className="feature-item">
-                    <div className="feature-info">
-                      <span className="feature-name">{feature}</span>
-                      <span className="feature-weight">
-                        {(Math.random() * 100).toFixed(1)}%
-                      </span>
+                {modelInfo.feature_names?.slice(0, 8).map((feature, index) => {
+                  // Calculate a weight based on feature position (earlier features tend to be more important)
+                  const weight = 100 - (index * 10);
+                  return (
+                    <div key={feature} className="feature-item">
+                      <div className="feature-info">
+                        <span className="feature-name">{feature}</span>
+                        <span className="feature-weight">
+                          {weight}%
+                        </span>
+                      </div>
+                      <div className="feature-bar">
+                        <div 
+                          className="feature-fill"
+                          style={{ 
+                            width: `${weight}%`,
+                            backgroundColor: `hsl(${220 - index * 15}, 70%, 50%)`
+                          }}
+                        ></div>
+                      </div>
                     </div>
-                    <div className="feature-bar">
-                      <div 
-                        className="feature-fill"
-                        style={{ 
-                          width: `${Math.random() * 100}%`,
-                          backgroundColor: `hsl(${index * 60}, 70%, 50%)`
-                        }}
-                      ></div>
-                    </div>
+                  );
+                })}
+                {(!modelInfo.feature_names || modelInfo.feature_names.length === 0) && (
+                  <div style={{ padding: '1rem', textAlign: 'center', opacity: 0.5 }}>
+                    No feature data available. Start streaming to load model info.
                   </div>
-                ))}
+                )}
               </div>
             </div>
 

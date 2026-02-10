@@ -11,7 +11,7 @@ import Streaming from './pages/streaming.tsx';
 import './pages/css/streaming.css';
 
 import FraudDetectionDashboard from './pages/aereal.tsx';
-import './pages/css/aereal.css';
+import './pages/css/aereal.css'; 
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
@@ -23,4 +23,15 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+  
+
+/*
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <Login />
+  </React.StrictMode>
+);
+*/
+
+
 
