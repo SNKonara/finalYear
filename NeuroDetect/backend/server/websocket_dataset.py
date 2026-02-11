@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from AEmodel.preprocessor import DataPreprocessor
 from AEmodel.model import FraudAutoencoder
+from database.mongodb import get_mongodb_instance
 
 class DatasetStreamServer:
     def __init__(self, dataset_path, stream_speed=1.0, enable_detection=True):
@@ -56,18 +57,39 @@ class DatasetStreamServer:
             'prediction_history': []  # Store recent predictions for analysis
         }
         
+        # MongoDB connection
+        self.db = None
+        
         print(f"✅ Loaded dataset with {len(self.dataset)} records")
+        
+        # Connect to MongoDB
+        self.connect_database()
         
         # Load fraud detection model if enabled
         if self.enable_detection:
             self.load_fraud_detection_model()
+    
+    def connect_database(self):
+        """Initialize MongoDB connection"""
+        try:
+            print("\n🗄️  Connecting to MongoDB...")
+            self.db = get_mongodb_instance()
+            if self.db.connected:
+                print("✅ MongoDB connected successfully")
+            else:
+                print("⚠️ MongoDB connection failed - results will not be saved to database")
+        except Exception as e:
+            print(f"⚠️ MongoDB connection error: {e}")
+            print("   Continuing without database - results will not be saved")
+            self.db = None
     
     def load_fraud_detection_model(self):
         """Load the fraud detection model and components"""
         print("\n🤖 Loading Fraud Detection Model...")
         
         try:
-            model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'saved_models')
+            # Path: backend/server/websocket_dataset.py -> backend/server -> backend -> NeuroDetect -> finalYear -> saved_models
+            model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'saved_models')
             
             # Load model checkpoint
             checkpoint_path = os.path.join(model_dir, 'autoencoder.pth')
@@ -331,6 +353,29 @@ class DatasetStreamServer:
                         # Merge detection results into payload
                         payload.update(detection_result)
                         payload['transaction_data'] = dict(prepared_record)
+                        payload['transaction_id'] = prepared_record.get('transaction_id', f'TXN_{index:06d}')
+                        
+                        # Save to MongoDB immediately
+                        if self.db and self.db.connected:
+                            try:
+                                # Add inserted_at timestamp
+                                db_payload = dict(payload)
+                                db_payload['inserted_at'] = datetime.now().isoformat()
+                                
+                                # Save to database
+                                result_id = self.db.insert_fraud_result(db_payload)
+                                
+                                # Add database ID to payload for frontend
+                                if result_id:
+                                    payload['db_id'] = result_id
+                                    payload['inserted_at'] = db_payload['inserted_at']
+                                
+                                # Save immediate alert for fraud transactions
+                                if db_payload['is_fraud']:
+                                    self.db.insert_immediate_alert(db_payload)
+                                    
+                            except Exception as e:
+                                print(f"   ⚠️ MongoDB save error: {e}")
                         
                         # Debug: Print detection result every 10 records
                         if index % 10 == 0:
@@ -341,7 +386,7 @@ class DatasetStreamServer:
                         payload['detection_error'] = True
                         print(f"   ⚠️ Detection failed for record {index + 1}")
 
-                # Send record
+                # Send record to frontend
                 await websocket.send(json.dumps(payload))
 
                 print(

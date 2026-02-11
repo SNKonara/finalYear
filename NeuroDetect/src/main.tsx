@@ -13,11 +13,15 @@ import './pages/css/streaming.css';
 import FraudDetectionDashboard from './pages/aereal.tsx';
 import './pages/css/aereal.css'; 
 
+import LSTMFraudDetectionDashboard from './pages/lstmreal.tsx';
+import './pages/css/lstmreal.css'; 
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<FraudDetectionDashboard />} />
+        <Route path="/lstmreal" element={<LSTMFraudDetectionDashboard />} />
         <Route path="/streaming" element={<Streaming />} />
       </Routes>
     </BrowserRouter>
