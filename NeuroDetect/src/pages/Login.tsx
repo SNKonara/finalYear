@@ -10,6 +10,7 @@ import {
   Fingerprint
 } from 'lucide-react';
 import './css/login.css';
+import App from './dashboard';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -127,7 +128,7 @@ const Login: React.FC = () => {
               <span className="checkbox-custom"></span>
               <span className="checkbox-text">Remember me</span>
             </label>
-            <a href="#" className="forgot-link">
+            <a href="" className="forgot-link">
               Forgot password?
             </a>
           </div>
