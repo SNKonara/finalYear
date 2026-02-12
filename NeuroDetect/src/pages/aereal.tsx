@@ -253,6 +253,9 @@ const FraudDetectionDashboard: React.FC = () => {
         setIsConnected(true);
         setConnectionStatus('connected');
         
+        // Select Autoencoder model on unified server
+        ws.send(JSON.stringify({ command: 'set_model', model: 'autoencoder' }));
+        
         // Request model info
         sendCommand('get_model_info');
         
@@ -1249,7 +1252,7 @@ const FraudDetectionDashboard: React.FC = () => {
             </div>
             <div className="info-item">
               <span className="info-label">Connected to:</span>
-              <span className="info-value">ws://localhost:8765</span>
+              <span className="info-value">ws://localhost:8765 (Autoencoder)</span>
             </div>
             <div className="info-item">
               <span className="info-label">Status:</span>

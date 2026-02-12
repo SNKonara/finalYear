@@ -249,7 +249,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
       setConnectionStatus('connecting');
       
-      const ws = new WebSocket('ws://localhost:8765');
+      const ws = new WebSocket('ws://localhost:8765');  // Unified server port
       wsRef.current = ws;
       window.lstmDetectionWS = ws; // Store globally
 
@@ -257,6 +257,9 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         console.log('✅ WebSocket connected');
         setIsConnected(true);
         setConnectionStatus('connected');
+        
+        // Select LSTM model on unified server
+        ws.send(JSON.stringify({ command: 'set_model', model: 'lstm' }));
         
         // Request model info
         sendCommand('get_model_info');
@@ -1271,7 +1274,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
             </div>
             <div className="info-item">
               <span className="info-label">Connected to:</span>
-              <span className="info-value">ws://localhost:8765</span>
+              <span className="info-value">ws://localhost:8765 (LSTM)</span>
             </div>
             <div className="info-item">
               <span className="info-label">Status:</span>

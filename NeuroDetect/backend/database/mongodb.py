@@ -25,7 +25,7 @@ class MongoDB:
         # Get connection details from environment or use defaults
         self.connection_string = connection_string or os.getenv(
             'MONGODB_URI', 
-            'mongodb://localhost:27017/'
+            ''
         )
         self.database_name = database_name or os.getenv('MONGODB_DATABASE', 'neurodetect')
         
@@ -43,6 +43,12 @@ class MongoDB:
     
     def connect(self):
         """Establish connection to MongoDB"""
+        # Check if MongoDB is disabled
+        if not self.connection_string or self.connection_string.strip()  == '':
+            print("ℹ️  MongoDB disabled - results will be saved to local files only")
+            self.connected = False
+            return False
+            
         try:
             # Create client with timeout
             self.client = MongoClient(
