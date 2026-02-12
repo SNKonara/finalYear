@@ -1,0 +1,51 @@
+{
+    "feature_names": [
+        "amt",
+        "lat",
+        "long",
+        "city_pop",
+        "merch_lat",
+        "merch_long",
+        "hour",
+        "day_of_week",
+        "day_of_month",
+        "month",
+        "distance",
+        "log_amt",
+        "amt_per_pop",
+        "hour_sin",
+        "hour_cos",
+        "cat_food_dining",
+        "cat_gas_transport",
+        "cat_grocery_pos",
+        "cat_home",
+        "cat_kids_pets",
+        "cat_other",
+        "cat_shopping_net",
+        "cat_shopping_pos",
+        "gender_M"
+    ],
+    "input_shape": [
+        10,
+        24
+    ],
+    "performance": {
+        "accuracy": 0.995026348510865,
+        "f1_score": 0.9925173703901656,
+        "fraud_precision": 0.9870659107016301,
+        "fraud_recall": 0.9980293801504837,
+        "fraud_f1": 0.9925173703901656,
+        "roc_auc": 0.9992256024232586,
+        "pr_auc": 0.9979928044407158,
+        "optimal_threshold": 0.86851567029953
+    },
+    "model_config": {
+        "input_dim": 24,
+        "hidden_dim": 256,
+        "num_layers": 2,
+        "dropout": 0.4,
+        "bidirectional": true,
+        "use_attention": true
+    },
+    "training_date": "2026-02-11 08:11:59"
+}
