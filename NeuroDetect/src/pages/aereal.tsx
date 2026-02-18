@@ -41,7 +41,8 @@ import {
   Timer,
   Database as DbIcon,
   Cloud,
-  Cpu as Processor
+  Cpu as Processor,
+  Briefcase
 } from 'lucide-react';
 import './css/aereal.css';
 
@@ -627,6 +628,13 @@ const FraudDetectionDashboard: React.FC = () => {
           >
             <Target className="nav-icon" />
             <span>LSTM</span>
+          </button>
+          <button 
+            className="nav-item"
+            onClick={() => navigate('/batch-upload')}
+          >
+            <Briefcase className="nav-icon" />
+            <span>Workplace</span>
           </button>
           <button 
             className={`nav-item ${activeTab === 'model' ? 'active' : ''}`}
