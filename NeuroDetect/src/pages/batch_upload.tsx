@@ -130,6 +130,7 @@ const BatchProcessing: React.FC = () => {
   const [selectedRiskFilter, setSelectedRiskFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [displayLimit, setDisplayLimit] = useState<number>(25);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -301,12 +302,20 @@ const BatchProcessing: React.FC = () => {
         formData.append('threshold', threshold.toString());
       }
 
-      // Send to backend
+      // Send to backend with timeout handling
       setProcessProgress(20);
+      console.log(`Processing with ${selectedModel} model...`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
+      
       const response = await fetch('http://localhost:8000/batch/process', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const error = await response.json();
@@ -320,8 +329,11 @@ const BatchProcessing: React.FC = () => {
         throw new Error('Processing failed');
       }
 
-      // Transform results for display
-      const processedResults: BatchResult[] = data.preview.map((item: any) => ({
+      console.log('Processing complete:', data.statistics);
+      console.log('Total results received:', data.results?.length || data.preview?.length);
+
+      // Transform results for display - using data.results to get ALL transactions
+      const processedResults: BatchResult[] = (data.results || data.preview).map((item: any) => ({
         transaction_id: item.trans_num || `TXN${Math.random().toString(36).substr(2, 9)}`,
         amount: item.amt || 0,
         category: item.category || 'N/A',
@@ -347,7 +359,11 @@ const BatchProcessing: React.FC = () => {
 
     } catch (error: any) {
       console.error('Processing error:', error);
-      setProcessingError(error.message || 'Failed to process file');
+      if (error.name === 'AbortError') {
+        setProcessingError('Processing timeout - file may be too large. Try with a smaller file.');
+      } else {
+        setProcessingError(error.message || 'Failed to process file');
+      }
       setIsProcessing(false);
       setProcessProgress(0);
     }
@@ -403,6 +419,20 @@ const BatchProcessing: React.FC = () => {
     return matchesSearch && matchesRisk;
   });
 
+  // Paginate results
+  const displayedResults = filteredResults.slice(0, displayLimit);
+  const hasMoreResults = filteredResults.length > displayLimit;
+
+  // Load more results
+  const loadMoreResults = () => {
+    setDisplayLimit(prev => prev + 25);
+  };
+
+  // Reset display limit when filters change
+  useEffect(() => {
+    setDisplayLimit(25);
+  }, [searchTerm, selectedRiskFilter]);
+
   // Calculate statistics
   const statistics = {
     total: results.length,
@@ -425,6 +455,24 @@ const BatchProcessing: React.FC = () => {
       newExpanded.add(index);
     }
     setExpandedRows(newExpanded);
+  };
+
+  // Reset all data for new batch
+  const resetBatch = () => {
+    setFile(null);
+    setResults([]);
+    setProcessProgress(0);
+    setUploadProgress(0);
+    setFilePreview([]);
+    setFileHeaders([]);
+    setSearchTerm('');
+    setSelectedRiskFilter('all');
+    setExpandedRows(new Set());
+    setDisplayLimit(25);
+    setActiveTab('upload');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -689,7 +737,7 @@ const BatchProcessing: React.FC = () => {
                   {isProcessing ? (
                     <>
                       <RefreshCw className="spin" />
-                      <span>Processing... {processProgress}%</span>
+                      <span>Processing with {selectedModel.toUpperCase()}... {processProgress}%</span>
                     </>
                   ) : (
                     <>
@@ -698,6 +746,25 @@ const BatchProcessing: React.FC = () => {
                     </>
                   )}
                 </button>
+
+                {/* Processing Status Message */}
+                {isProcessing && selectedModel === 'lstm' && (
+                  <div className="processing-note">
+                    <Info size={14} />
+                    <span>LSTM processing may take longer for large files...</span>
+                  </div>
+                )}
+
+                {/* Error Display */}
+                {processingError && (
+                  <div className="error-message">
+                    <AlertTriangle size={16} />
+                    <span>{processingError}</span>
+                    <button onClick={() => setProcessingError(null)} className="error-close">
+                      ×
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -817,6 +884,10 @@ const BatchProcessing: React.FC = () => {
                     <FileText size={16} />
                     Download PDF Report
                   </button>
+                  <button className="export-btn reset" onClick={resetBatch} title="Start New Batch">
+                    <RefreshCw size={16} />
+                    New Batch
+                  </button>
                 </div>
               </div>
 
@@ -836,7 +907,7 @@ const BatchProcessing: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredResults.map((result, idx) => (
+                    {displayedResults.map((result, idx) => (
                       <React.Fragment key={idx}>
                         <tr className={`result-row ${result.risk_category.toLowerCase()}`}>
                           <td>
@@ -916,6 +987,16 @@ const BatchProcessing: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+
+              {/* See More Button */}
+              {hasMoreResults && (
+                <div className="see-more-container">
+                  <button className="see-more-btn" onClick={loadMoreResults}>
+                    <ChevronRight size={16} />
+                    Show More Results ({displayedResults.length} of {filteredResults.length})
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
