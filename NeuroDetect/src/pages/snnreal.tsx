@@ -49,21 +49,23 @@ import './css/lstmreal.css';
 // Global WebSocket reference to persist across component remounts
 declare global {
   interface Window {
-    lstmDetectionWS?: WebSocket;
+    snnDetectionWS?: WebSocket;
   }
 }
 
-interface LSTMFraudDetectionRecord {
+interface SNNFraudDetectionRecord {
   transaction_id: string;
   transaction_data: any;
   fraud_score: number;
   optimal_threshold: number;
+  fraud_probability?: number;
+  decision_threshold?: number | null;
   is_fraud: boolean;
   confidence: number;
   risk_level: 'Low' | 'Medium-Low' | 'Medium-High' | 'High';
   processing_time_ms: number;
   timestamp: string;
-  sequence_length?: number;
+  time_steps?: number;
   model_type?: string;
   [key: string]: any;
 }
@@ -95,16 +97,27 @@ interface ModelInfo {
   input_dim: number;
   architecture: string;
   threshold: number;
+  threshold_scale?: number;
+  global_threshold?: number;
+  unknown_customer_policy?: string;
+  time_steps?: number;
   device: string;
   expected_features: number;
   feature_names: string[];
   num_features?: number;
-  sequence_length?: number;
   hidden_size?: number;
   num_layers?: number;
+  output_size?: number;
+  performance?: {
+    accuracy?: number;
+    precision?: number;
+    recall?: number;
+    f1?: number;
+    auc?: number;
+  };
 }
 
-const LSTMFraudDetectionDashboard: React.FC = () => {
+const SNNFraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
   
   // WebSocket state
@@ -114,7 +127,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   
   // Data state
-  const [records, setRecords] = useState<LSTMFraudDetectionRecord[]>([]);
+  const [records, setRecords] = useState<SNNFraudDetectionRecord[]>([]);
   const [modelStats, setModelStats] = useState<ModelStats>({
     total_processed: 0,
     fraud_detected: 0,
@@ -130,15 +143,19 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   
   const [modelInfo, setModelInfo] = useState<ModelInfo>({
     input_dim: 0,
-    architecture: 'Enhanced LSTM',
+    architecture: 'Enhanced SNN',
     threshold: 0.5,
+    threshold_scale: 1.0,
+    global_threshold: 0.5,
+    unknown_customer_policy: 'global',
+    time_steps: 20,
     device: 'cpu',
     expected_features: 0,
     feature_names: [],
     num_features: 0,
-    sequence_length: 10,
-    hidden_size: 128,
-    num_layers: 2
+    hidden_size: 64,
+    num_layers: 2,
+    output_size: 2
   });
 
   // UI state
@@ -147,19 +164,71 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState('all');
   const [showFraudOnly, setShowFraudOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState('lstm');
-  const [scoreHistory, setScoreHistory] = useState<number[]>([]);
-  const [showScoreChart, setShowScoreChart] = useState(true);
+  const [activeTab, setActiveTab] = useState('snn');
+  const [activationHistory, setActivationHistory] = useState<number[]>([]);
+  const [showActivationChart, setShowActivationChart] = useState(true);
 
   // Refs
-  const recordsRef = useRef<LSTMFraudDetectionRecord[]>([]);
+  const recordsRef = useRef<SNNFraudDetectionRecord[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
+
+  const getHiddenSizeFromArchitecture = (architecture: string) => {
+    const match = architecture.match(/SNN-FC\d+-(\d+)-/);
+    if (!match) return 64;
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isNaN(parsed) ? 64 : parsed;
+  };
+
+  const normalizeFraudFlag = (rawFraudFlag: unknown, score?: number, threshold?: number): boolean => {
+    if (typeof rawFraudFlag === 'boolean') return rawFraudFlag;
+    if (typeof rawFraudFlag === 'number') return rawFraudFlag > 0;
+
+    if (typeof rawFraudFlag === 'string') {
+      const normalized = rawFraudFlag.trim().toLowerCase();
+
+      if (
+        normalized === 'true' ||
+        normalized === '1' ||
+        normalized === 'yes' ||
+        normalized === 'y' ||
+        normalized === 'fraud' ||
+        normalized === 'anomaly' ||
+        normalized === 'anomalous' ||
+        normalized === 'high' ||
+        normalized === 'high-risk' ||
+        normalized === 'high_risk'
+      ) {
+        return true;
+      }
+
+      if (
+        normalized === 'false' ||
+        normalized === '0' ||
+        normalized === 'no' ||
+        normalized === 'n' ||
+        normalized === 'normal' ||
+        normalized === 'legit' ||
+        normalized === 'legitimate' ||
+        normalized === 'low' ||
+        normalized === 'low-risk' ||
+        normalized === 'low_risk'
+      ) {
+        return false;
+      }
+    }
+
+    if (typeof score === 'number' && typeof threshold === 'number') {
+      return score >= threshold;
+    }
+
+    return false;
+  };
 
   // Sync streaming state across pages using localStorage
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'lstm_detection_streaming') {
+      if (e.key === 'snn_detection_streaming') {
         const newState = e.newValue === 'true';
         setIsStreaming(newState);
         
@@ -177,7 +246,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     window.addEventListener('storage', handleStorageChange);
     
     // Check initial state from localStorage
-    const savedState = localStorage.getItem('lstm_detection_streaming');
+    const savedState = localStorage.getItem('snn_detection_streaming');
     if (savedState !== null) {
       const streamingState = savedState === 'true';
       setIsStreaming(streamingState);
@@ -205,16 +274,16 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         setIsConnected(false);
         setIsStreaming(false);
         setConnectionStatus('disconnected');
-        localStorage.setItem('lstm_detection_streaming', 'false');
+        localStorage.setItem('snn_detection_streaming', 'false');
         
         // Clear global reference
-        if (window.lstmDetectionWS === ws) {
-          window.lstmDetectionWS = undefined;
+        if (window.snnDetectionWS === ws) {
+          window.snnDetectionWS = undefined;
         }
         
         // Attempt to reconnect after 3 seconds
         setTimeout(() => {
-          if (!window.lstmDetectionWS || window.lstmDetectionWS.readyState === WebSocket.CLOSED) {
+          if (!window.snnDetectionWS || window.snnDetectionWS.readyState === WebSocket.CLOSED) {
             connectWebSocket();
           }
         }, 3000);
@@ -227,22 +296,22 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
     const connectWebSocket = () => {
       // Check if there's already an active WebSocket connection
-      if (window.lstmDetectionWS && window.lstmDetectionWS.readyState === WebSocket.OPEN) {
+      if (window.snnDetectionWS && window.snnDetectionWS.readyState === WebSocket.OPEN) {
         console.log('Reusing existing WebSocket connection');
-        wsRef.current = window.lstmDetectionWS;
-        setSocket(window.lstmDetectionWS);
+        wsRef.current = window.snnDetectionWS;
+        setSocket(window.snnDetectionWS);
         setIsConnected(true);
         setConnectionStatus('connected');
         
         // Re-attach event handlers for this component instance
-        setupWebSocketHandlers(window.lstmDetectionWS);
+        setupWebSocketHandlers(window.snnDetectionWS);
         return;
       }
 
       // Close any existing but non-functional WebSocket
-      if (window.lstmDetectionWS) {
+      if (window.snnDetectionWS) {
         try {
-          window.lstmDetectionWS.close();
+          window.snnDetectionWS.close();
         } catch (e) {
           // Ignore errors
         }
@@ -252,15 +321,15 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
       
       const ws = new WebSocket('ws://localhost:8765');  // Unified server port
       wsRef.current = ws;
-      window.lstmDetectionWS = ws; // Store globally
+      window.snnDetectionWS = ws; // Store globally
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
         setIsConnected(true);
         setConnectionStatus('connected');
         
-        // Select LSTM model on unified server
-        ws.send(JSON.stringify({ command: 'set_model', model: 'lstm' }));
+        // Select SNN model on unified server
+        ws.send(JSON.stringify({ command: 'set_model', model: 'snn' }));
         
         // Request model info
         sendCommand('get_model_info');
@@ -279,11 +348,11 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
     return () => {
       // Only close WebSocket if not streaming (check localStorage for current state)
-      const currentStreamingState = localStorage.getItem('lstm_detection_streaming');
-      if (window.lstmDetectionWS && currentStreamingState !== 'true') {
+      const currentStreamingState = localStorage.getItem('snn_detection_streaming');
+      if (window.snnDetectionWS && currentStreamingState !== 'true') {
         console.log('Closing WebSocket - streaming is not active');
-        window.lstmDetectionWS.close();
-        window.lstmDetectionWS = undefined;
+        window.snnDetectionWS.close();
+        window.snnDetectionWS = undefined;
       } else {
         console.log('Keeping WebSocket alive - streaming is active');
       }
@@ -316,17 +385,24 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
     // Model info response
     if (data.model_info) {
+      const architecture = data.model_info.architecture || 'Enhanced SNN';
+      const inferredHiddenSize = getHiddenSizeFromArchitecture(architecture);
       setModelInfo({
         input_dim: data.model_info.input_dim || 0,
-        architecture: data.model_info.architecture || 'Enhanced LSTM',
+        architecture,
         threshold: data.model_info.threshold || data.model_info.optimal_threshold || 0.5,
+        threshold_scale: data.model_info.threshold_scale || 1.0,
+        global_threshold: data.model_info.global_threshold || data.model_info.threshold || 0.5,
+        unknown_customer_policy: data.model_info.unknown_customer_policy || 'global',
+        time_steps: data.model_info.time_steps || 20,
         device: data.model_info.device || 'cpu',
         expected_features: data.model_info.expected_features || 0,
         feature_names: data.model_info.feature_names || [],
         num_features: data.model_info.num_features || data.model_info.input_dim || 0,
-        sequence_length: data.model_info.sequence_length || 10,
-        hidden_size: data.model_info.hidden_size || 128,
-        num_layers: data.model_info.num_layers || 2
+        hidden_size: data.model_info.hidden_size || inferredHiddenSize,
+        num_layers: data.model_info.num_layers || 2,
+        output_size: data.model_info.output_size || 2,
+        performance: data.model_info.performance || undefined
       });
       return;
     }
@@ -335,15 +411,15 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     if (typeof data.streaming === 'boolean' || data.status || data.speed) {
       if (typeof data.streaming === 'boolean') {
         setIsStreaming(data.streaming);
-        localStorage.setItem('lstm_detection_streaming', data.streaming.toString());
+        localStorage.setItem('snn_detection_streaming', data.streaming.toString());
       }
       if (data.status === 'stopped') {
         setIsStreaming(false);
-        localStorage.setItem('lstm_detection_streaming', 'false');
+        localStorage.setItem('snn_detection_streaming', 'false');
       }
       if (data.status === 'already_streaming') {
         setIsStreaming(true);
-        localStorage.setItem('lstm_detection_streaming', 'true');
+        localStorage.setItem('snn_detection_streaming', 'true');
       }
       if (data.speed) {
         setStreamSpeed(data.speed);
@@ -366,33 +442,56 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
       return;
     }
 
-    // Check if this is a fraud detection result (has fraud_score or is_fraud field)
-    if (data.fraud_score !== undefined || data.is_fraud !== undefined || data.transaction_id) {
+    // Check if this is a real detection result
+    if (
+      data.fraud_score !== undefined ||
+      data.fraud_probability !== undefined ||
+      data.is_fraud !== undefined ||
+      data.decision_threshold !== undefined
+    ) {
+      const score =
+        data.fraud_score ??
+        data.fraud_probability ??
+        data.score ??
+        0;
+      const threshold =
+        data.decision_threshold ??
+        data.optimal_threshold ??
+        modelInfo.threshold;
+      const rawFraudFlag =
+        data.is_fraud ??
+        data.fraud_prediction ??
+        data.prediction;
+      const isFraud = normalizeFraudFlag(rawFraudFlag, score, threshold);
+
       // Log every 10th record to avoid console spam
       if (recordsRef.current.length % 10 === 0) {
-        console.log('📊 LSTM fraud detection result:', {
+        console.log('📊 SNN fraud detection result:', {
           id: data.transaction_id,
-          is_fraud: data.is_fraud,
-          score: data.fraud_score,
+          is_fraud: isFraud,
+          score,
+          threshold,
           risk: data.risk_level,
           total_records: recordsRef.current.length
         });
       }
 
-      // This is an LSTM fraud detection result
-      const newRecord: LSTMFraudDetectionRecord = {
+      // This is an SNN fraud detection result
+      const newRecord: SNNFraudDetectionRecord = {
+        ...data,
         transaction_id: data.transaction_id || `TXN_${Date.now()}`,
         transaction_data: data.transaction_data || data,
-        fraud_score: data.fraud_score || 0,
-        optimal_threshold: data.optimal_threshold || modelInfo.threshold,
-        is_fraud: data.is_fraud === true || data.is_fraud === 1,
+        fraud_score: score,
+        optimal_threshold: threshold,
+        fraud_probability: data.fraud_probability,
+        decision_threshold: data.decision_threshold,
+        is_fraud: isFraud,
         confidence: data.confidence || 0,
         risk_level: data.risk_level || 'Low',
         processing_time_ms: data.processing_time_ms || 0,
         timestamp: data.timestamp || data.stream_timestamp || new Date().toISOString(),
-        sequence_length: data.sequence_length || modelInfo.sequence_length,
-        model_type: data.model_type || 'LSTM',
-        ...data
+        time_steps: data.time_steps || modelInfo.time_steps,
+        model_type: data.model_type || 'SNN'
       };
 
       // Update records
@@ -401,18 +500,18 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
       setRecords(updatedRecords);
       
       // Publish data to localStorage for streaming page
-      localStorage.setItem('lstm_detection_data', JSON.stringify(updatedRecords));
+      localStorage.setItem('snn_detection_data', JSON.stringify(updatedRecords));
 
       // Update score history
-      setScoreHistory(prev => [...prev.slice(-49), newRecord.fraud_score]);
+      setActivationHistory(prev => [...prev.slice(-49), newRecord.fraud_score]);
 
       // Update statistics
       updateStats(newRecord);
     }
-  }, [maxRecords, modelInfo.threshold, modelInfo.sequence_length]);
+  }, [maxRecords, modelInfo.threshold, modelInfo.time_steps]);
 
   // Update statistics
-  const updateStats = useCallback((record: LSTMFraudDetectionRecord) => {
+  const updateStats = useCallback((record: SNNFraudDetectionRecord) => {
     setModelStats(prev => {
       const newTotal = prev.total_processed + 1;
       const newFraudCount = prev.fraud_detected + (record.is_fraud ? 1 : 0);
@@ -437,7 +536,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   // WebSocket commands
   const sendCommand = useCallback((command: string, data?: any) => {
     // Use wsRef.current or fall back to global reference
-    const ws = wsRef.current || window.lstmDetectionWS;
+    const ws = wsRef.current || window.snnDetectionWS;
     
     if (!ws) {
       console.warn('WebSocket not initialized');
@@ -454,13 +553,13 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
   const startStreaming = () => {
     setIsStreaming(true);
-    localStorage.setItem('lstm_detection_streaming', 'true');
+    localStorage.setItem('snn_detection_streaming', 'true');
     sendCommand('start_stream');
   };
 
   const stopStreaming = () => {
     setIsStreaming(false);
-    localStorage.setItem('lstm_detection_streaming', 'false');
+    localStorage.setItem('snn_detection_streaming', 'false');
     sendCommand('stop_stream');
   };
 
@@ -471,7 +570,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
   const resetStats = () => {
     setRecords([]);
-    setScoreHistory([]);
+    setActivationHistory([]);
     setModelStats({
       total_processed: 0,
       fraud_detected: 0,
@@ -486,7 +585,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     });
     
     // Clear data in localStorage for streaming page
-    localStorage.setItem('lstm_detection_data', JSON.stringify([]));
+    localStorage.setItem('snn_detection_data', JSON.stringify([]));
   };
 
   // Filter records
@@ -517,14 +616,33 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         High: records.filter(r => r.risk_level === 'High').length
       };
 
+  const localFraudDetected = records.reduce((count, record) => {
+    const fraudFlag = normalizeFraudFlag(
+      record.is_fraud,
+      record.fraud_score,
+      record.decision_threshold ?? record.optimal_threshold ?? modelInfo.threshold
+    );
+    return count + (fraudFlag ? 1 : 0);
+  }, 0);
+
+  const liveWindowTotal = records.length;
+  const liveWindowFraudDetected = localFraudDetected;
+  const liveWindowFraudRate =
+    liveWindowTotal > 0 ? (liveWindowFraudDetected / liveWindowTotal) * 100 : 0;
+
+  const resolvedTotalProcessed = Math.max(modelStats.total_processed, records.length);
+  const resolvedFraudDetected = Math.max(modelStats.fraud_detected, localFraudDetected);
+  const resolvedFraudRate =
+    resolvedTotalProcessed > 0 ? (resolvedFraudDetected / resolvedTotalProcessed) * 100 : 0;
+
   // Format fraud score
   const formatScore = (score: number) => {
     return score.toFixed(4);
   };
 
-  // Get score severity color
-  const getScoreColor = (score: number, threshold: number) => {
-    const ratio = score / threshold;
+  // Get activation severity color
+  const getActivationColor = (activationRatio: number) => {
+    const ratio = activationRatio;
     if (ratio < 0.5) return 'low';
     if (ratio < 1.0) return 'medium';
     return 'high';
@@ -541,9 +659,9 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     }
   };
 
-  // Draw fraud score chart
+  // Draw SNN spike activation plot
   useEffect(() => {
-    if (!chartRef.current || scoreHistory.length === 0) return;
+    if (!chartRef.current || activationHistory.length === 0) return;
 
     const canvas = chartRef.current;
     const ctx = canvas.getContext('2d');
@@ -561,27 +679,31 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
+    const activationRatios = activationHistory.map(score =>
+      modelInfo.threshold > 0 ? score / modelInfo.threshold : 0
+    );
+    const maxActivation = Math.max(...activationRatios, 1.5);
 
-    // Draw threshold line
+    // Draw decision boundary line (1.0x activation)
     ctx.beginPath();
-    const thresholdY = height - padding - (modelInfo.threshold / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
-    ctx.moveTo(padding, thresholdY);
-    ctx.lineTo(width - padding, thresholdY);
+    const decisionY = height - padding - (1 / maxActivation) * chartHeight;
+    ctx.moveTo(padding, decisionY);
+    ctx.lineTo(width - padding, decisionY);
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Draw threshold label
+    // Draw decision boundary label
     ctx.fillStyle = 'rgba(239, 68, 68, 0.8)';
     ctx.font = '12px monospace';
-    ctx.fillText(`Threshold: ${modelInfo.threshold.toFixed(4)}`, width - padding - 120, thresholdY - 10);
+    ctx.fillText('Decision Line: 1.00x', width - padding - 150, decisionY - 10);
 
-    // Draw score line
-    if (scoreHistory.length > 1) {
+    // Draw activation line
+    if (activationRatios.length > 1) {
       ctx.beginPath();
-      scoreHistory.forEach((score, index) => {
-        const x = padding + (index / (scoreHistory.length - 1)) * chartWidth;
-        const y = height - padding - (score / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
+      activationRatios.forEach((activationRatio, index) => {
+        const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
+        const y = height - padding - (activationRatio / maxActivation) * chartHeight;
         
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -596,19 +718,19 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     }
 
     // Draw points
-    scoreHistory.forEach((score, index) => {
-      const x = padding + (index / (scoreHistory.length - 1)) * chartWidth;
-      const y = height - padding - (score / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
+    activationRatios.forEach((activationRatio, index) => {
+      const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
+      const y = height - padding - (activationRatio / maxActivation) * chartHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = getScoreColor(score, modelInfo.threshold) === 'high' ? 
-        'var(--danger)' : getScoreColor(score, modelInfo.threshold) === 'medium' ? 
+      ctx.fillStyle = getActivationColor(activationRatio) === 'high' ? 
+        'var(--danger)' : getActivationColor(activationRatio) === 'medium' ? 
         'var(--warning)' : 'var(--success)';
       ctx.fill();
     });
 
-  }, [scoreHistory, modelInfo.threshold]);
+  }, [activationHistory, modelInfo.threshold]);
 
   return (
     <div className="fraud-dashboard">
@@ -620,7 +742,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
             <span className="logo-text">NeuroDetect</span>
           </div>
           <div className="model-badge">
-            <div className="model-type">LSTM</div>
+            <div className="model-type">SNN</div>
             <div className={`connection-dot ${connectionStatus}`}></div>
           </div>
         </div>
@@ -634,15 +756,15 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
             <span>Autoencoder</span>
           </button>
           <button 
-            className={`nav-item active`}
-            onClick={() => setActiveTab('lstm')}
+            className="nav-item"
+            onClick={() => navigate('/lstmreal')}
           >
             <Target className="nav-icon" />
             <span>LSTM</span>
           </button>
           <button 
-            className="nav-item"
-            onClick={() => navigate('/snnreal')}
+            className={`nav-item active`}
+            onClick={() => setActiveTab('snn')}
           >
             <Zap className="nav-icon" />
             <span>SNN</span>
@@ -695,14 +817,14 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         {/* Top Bar */}
         <header className="fraud-topbar">
           <div className="topbar-left">
-            <h1>LSTM Fraud Detection</h1>
-            <p className="subtitle">Real-time sequence-based fraud detection using LSTM networks</p>
+            <h1>SNN Fraud Detection</h1>
+            <p className="subtitle">Real-time spiking neural network fraud detection</p>
           </div>
           
           <div className="topbar-right">
             <div className="model-arch">
               <Percent className="arch-icon" />
-              <span>Accuracy: {(100 - modelStats.fraud_rate).toFixed(1)}%</span>
+              <span>Accuracy: {(100 - resolvedFraudRate).toFixed(1)}%</span>
             </div>
             
             <div className="control-group">
@@ -747,28 +869,30 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         <div className="performance-grid">
           <div className="performance-card large">
             <div className="card-header">
-              <h3>Fraud Score Chart</h3>
+              <h3>Spike Activation Plot</h3>
               <button 
                 className="chart-toggle"
-                onClick={() => setShowScoreChart(!showScoreChart)}
+                onClick={() => setShowActivationChart(!showActivationChart)}
               >
-                {showScoreChart ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showActivationChart ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            <div className={`chart-container ${showScoreChart ? 'visible' : 'hidden'}`}>
+            <div className={`chart-container ${showActivationChart ? 'visible' : 'hidden'}`}>
               <canvas ref={chartRef} className="error-chart"></canvas>
             </div>
             <div className="chart-footer">
               <div className="chart-stats">
                 <div className="chart-stat">
-                  <span className="stat-label">Current Score:</span>
+                  <span className="stat-label">Current Activation:</span>
                   <span className="stat-value">
-                    {records[0]?.fraud_score ? formatScore(records[0].fraud_score) : 'N/A'}
+                    {records[0]?.fraud_score !== undefined && modelInfo.threshold > 0
+                      ? `${(records[0].fraud_score / modelInfo.threshold).toFixed(2)}x`
+                      : 'N/A'}
                   </span>
                 </div>
                 <div className="chart-stat">
-                  <span className="stat-label">Threshold:</span>
-                  <span className="stat-value">{modelInfo.threshold.toFixed(4)}</span>
+                  <span className="stat-label">Decision Line:</span>
+                  <span className="stat-value">1.00x</span>
                 </div>
               </div>
             </div>
@@ -780,17 +904,17 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
               <Target className="card-icon" />
             </div>
             <div className="detection-rate">
-              <div className="rate-value">{modelStats.fraud_rate.toFixed(2)}%</div>
+              <div className="rate-value">{liveWindowFraudRate.toFixed(2)}%</div>
               <div className="rate-label">Fraud Detection Rate</div>
               <div className="rate-bar">
                 <div 
                   className="rate-fill"
-                  style={{ width: `${Math.min(modelStats.fraud_rate, 100)}%` }}
+                  style={{ width: `${Math.min(liveWindowFraudRate, 100)}%` }}
                 ></div>
               </div>
               <div className="rate-stats">
-                <span>Detected: {modelStats.fraud_detected}</span>
-                <span>Total: {modelStats.total_processed}</span>
+                <span>Detected: {liveWindowFraudDetected}</span>
+                <span>Total: {liveWindowTotal}</span>
               </div>
             </div>
           </div>
@@ -891,8 +1015,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <Layers className="layer-icon" />
                       <div>
-                        <div className="layer-name">LSTM Layer</div>
-                        <div className="layer-dims">Sequence Processing</div>
+                        <div className="layer-name">FC + LIF Layer 1</div>
+                        <div className="layer-dims">Spiking Integration</div>
                       </div>
                     </div>
                     <div className="layer-nodes">{modelInfo.hidden_size}</div>
@@ -904,8 +1028,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <Layers className="layer-icon" />
                       <div>
-                        <div className="layer-name">Attention</div>
-                        <div className="layer-dims">Context Weighing</div>
+                        <div className="layer-name">FC + LIF Layer 2</div>
+                        <div className="layer-dims">Temporal Spike Flow</div>
                       </div>
                     </div>
                     <div className="layer-nodes">{modelInfo.hidden_size}</div>
@@ -917,30 +1041,46 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <GitBranch className="layer-icon" />
                       <div>
-                        <div className="layer-name">Output</div>
-                        <div className="layer-dims">Classification</div>
+                        <div className="layer-name">Output Layer</div>
+                        <div className="layer-dims">2-Class Spiking Logits</div>
                       </div>
                     </div>
-                    <div className="layer-nodes">1</div>
+                    <div className="layer-nodes">{modelInfo.output_size || 2}</div>
                   </div>
                 </div>
                 
                 <div className="model-info">
                   <div className="info-item">
+                    <span className="info-label">Architecture:</span>
+                    <span className="info-value">{modelInfo.architecture}</span>
+                  </div>
+                  <div className="info-item">
                     <span className="info-label">Threshold:</span>
                     <span className="info-value">{modelInfo.threshold.toFixed(6)}</span>
                   </div>
                   <div className="info-item">
-                    <span className="info-label">Sequence Length:</span>
-                    <span className="info-value">{modelInfo.sequence_length}</span>
+                    <span className="info-label">Time Steps:</span>
+                    <span className="info-value">{modelInfo.time_steps}</span>
                   </div>
                   <div className="info-item">
                     <span className="info-label">Hidden Size:</span>
                     <span className="info-value">{modelInfo.hidden_size}</span>
                   </div>
                   <div className="info-item">
-                    <span className="info-label">LSTM Layers:</span>
+                    <span className="info-label">SNN Layers:</span>
                     <span className="info-value">{modelInfo.num_layers}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Threshold Scale:</span>
+                    <span className="info-value">{(modelInfo.threshold_scale || 1).toFixed(2)}x</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Global Threshold:</span>
+                    <span className="info-value">{(modelInfo.global_threshold || modelInfo.threshold).toFixed(6)}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Unknown Policy:</span>
+                    <span className="info-value">{modelInfo.unknown_customer_policy || 'global'}</span>
                   </div>
                   <div className="info-item">
                     <span className="info-label">Device:</span>
@@ -949,6 +1089,14 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                   <div className="info-item">
                     <span className="info-label">Total Features:</span>
                     <span className="info-value">{modelInfo.num_features || modelInfo.expected_features}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">F1 Score:</span>
+                    <span className="info-value">{modelInfo.performance?.f1 ? modelInfo.performance.f1.toFixed(4) : 'N/A'}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">AUC:</span>
+                    <span className="info-value">{modelInfo.performance?.auc ? modelInfo.performance.auc.toFixed(4) : 'N/A'}</span>
                   </div>
                   <div className="info-item" style={{ gridColumn: '1 / -1' }}>
                     <span className="info-label">Feature Names:</span>
@@ -1017,7 +1165,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
               <div className="detections-table">
                 <div className="table-header">
                   <div className="table-col">Transaction ID</div>
-                  <div className="table-col">Fraud Score</div>
+                  <div className="table-col">Fraud Probability</div>
                   <div className="table-col">Risk Level</div>
                   <div className="table-col">Fraud Status</div>
                   <div className="table-col">Confidence</div>
@@ -1037,7 +1185,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                       </div>
                       <div className="table-col">
                         <div className="error-display">
-                          <div className="error-value" title={`Fraud Score: ${record.fraud_score}`}>
+                          <div className="error-value" title={`Fraud Probability: ${record.fraud_score}`}>
                             {formatScore(record.fraud_score)}
                           </div>
                           <div className="error-threshold" style={{ fontSize: '0.7em', opacity: 0.6 }}>
@@ -1047,7 +1195,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                             <div 
                               className="error-fill"
                               style={{ 
-                                width: `${Math.min((record.fraud_score / record.optimal_threshold) * 100, 100)}%`,
+                                width: `${Math.min((record.fraud_score / Math.max(record.optimal_threshold, 1e-6)) * 100, 100)}%`,
                                 backgroundColor: getRiskColor(record.risk_level)
                               }}
                             ></div>
@@ -1275,12 +1423,12 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         <footer className="fraud-footer">
           <div className="footer-info">
             <div className="info-item">
-              <span className="info-label">LSTM Model:</span>
+              <span className="info-label">SNN Model:</span>
               <span className="info-value">{modelInfo.architecture} Architecture</span>
             </div>
             <div className="info-item">
               <span className="info-label">Connected to:</span>
-              <span className="info-value">ws://localhost:8765 (LSTM)</span>
+              <span className="info-value">ws://localhost:8765 (SNN)</span>
             </div>
             <div className="info-item">
               <span className="info-label">Status:</span>
@@ -1290,7 +1438,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
             </div>
           </div>
           <div className="footer-meta">
-            <span>LSTM Fraud Detection System v2.0 • Real-time Sequence-Based Detection</span>
+            <span>SNN Fraud Detection System v2.0 • Real-time Sequence-Based Detection</span>
           </div>
         </footer>
       </main>
@@ -1298,4 +1446,4 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   );
 };
 
-export default LSTMFraudDetectionDashboard;
+export default SNNFraudDetectionDashboard;

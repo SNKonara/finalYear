@@ -57,11 +57,29 @@ interface StreamingStats {
   fraudRate: number;
 }
 
+type RealtimeModel = 'autoencoder' | 'lstm' | 'snn';
+
+const MODEL_CHANNELS: Record<RealtimeModel, { dataKey: string; streamingKey: string }> = {
+  autoencoder: {
+    dataKey: 'fraud_detection_data',
+    streamingKey: 'fraud_detection_streaming'
+  },
+  lstm: {
+    dataKey: 'lstm_detection_data',
+    streamingKey: 'lstm_detection_streaming'
+  },
+  snn: {
+    dataKey: 'snn_detection_data',
+    streamingKey: 'snn_detection_streaming'
+  }
+};
+
 const Streaming: React.FC = () => {
   const navigate = useNavigate();
   
   // Streaming state (synced from aereal page)
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeModel, setActiveModel] = useState<RealtimeModel>('autoencoder');
   
   // Data state
   const [records, setRecords] = useState<StreamingRecord[]>([]);
@@ -88,68 +106,116 @@ const Streaming: React.FC = () => {
   const recordsRef = useRef<StreamingRecord[]>([]);
   const statsRef = useRef<StreamingStats>(stats);
 
-  // Sync streaming state and data from aereal page via localStorage
+  const normalizeRecords = useCallback((input: any[]): StreamingRecord[] => {
+    return input.map((row: any, index: number) => {
+      const txn = row.transaction_data || row;
+      return {
+        transaction_id: row.transaction_id || txn.transaction_id || `TXN_${index}`,
+        stream_index: row.stream_index ?? index,
+        stream_timestamp: row.stream_timestamp || row.timestamp || new Date().toISOString(),
+        is_fraud: row.is_fraud === true || row.is_fraud === 1,
+        amount: txn.amt ?? row.amount ?? row.amt ?? 0,
+        category: txn.category ?? row.category ?? 'N/A',
+        gender: txn.gender ?? row.gender,
+        merchant: txn.merchant ?? row.merchant,
+        location: txn.city ?? row.location,
+        ...row,
+      } as StreamingRecord;
+    });
+  }, []);
+
+  const readModelData = useCallback((model: RealtimeModel) => {
+    const raw = localStorage.getItem(MODEL_CHANNELS[model].dataKey);
+    if (!raw) return [] as StreamingRecord[];
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [] as StreamingRecord[];
+      return normalizeRecords(parsed);
+    } catch {
+      return [] as StreamingRecord[];
+    }
+  }, [normalizeRecords]);
+
+  const applyModelData = useCallback((model: RealtimeModel, data: StreamingRecord[]) => {
+    setActiveModel(model);
+    setRecords(data);
+    recordsRef.current = data;
+    updateStatsFromRecords(data);
+  }, [updateStatsFromRecords]);
+
+  // Sync streaming state and data from realtime model pages via localStorage
   useEffect(() => {
+    const resolveActiveStreamingModel = (): RealtimeModel | null => {
+      if (localStorage.getItem(MODEL_CHANNELS.snn.streamingKey) === 'true') return 'snn';
+      if (localStorage.getItem(MODEL_CHANNELS.lstm.streamingKey) === 'true') return 'lstm';
+      if (localStorage.getItem(MODEL_CHANNELS.autoencoder.streamingKey) === 'true') return 'autoencoder';
+      return null;
+    };
+
     const handleStorageChange = (e: StorageEvent) => {
-      // Sync streaming status
-      if (e.key === 'fraud_detection_streaming') {
+      const modelFromStreamingKey = (Object.keys(MODEL_CHANNELS) as RealtimeModel[]).find(
+        model => MODEL_CHANNELS[model].streamingKey === e.key
+      );
+
+      if (modelFromStreamingKey) {
         const newState = e.newValue === 'true';
-        setIsStreaming(newState);
+        if (newState) {
+          setActiveModel(modelFromStreamingKey);
+          setIsStreaming(true);
+          const data = readModelData(modelFromStreamingKey);
+          applyModelData(modelFromStreamingKey, data);
+          return;
+        }
+
+        const stillActiveModel = resolveActiveStreamingModel();
+        if (stillActiveModel) {
+          setActiveModel(stillActiveModel);
+          setIsStreaming(true);
+          const data = readModelData(stillActiveModel);
+          applyModelData(stillActiveModel, data);
+          return;
+        }
+
+        setIsStreaming(false);
+        return;
       }
-      
-      // Sync transaction data
-      if (e.key === 'fraud_detection_data') {
-        try {
-          const data = JSON.parse(e.newValue || '[]');
-          if (Array.isArray(data)) {
-            setRecords(data);
-            recordsRef.current = data;
-            
-            // Update stats based on received data
-            updateStatsFromRecords(data);
-          }
-        } catch (error) {
-          console.error('Error parsing fraud detection data:', error);
+
+      const modelFromDataKey = (Object.keys(MODEL_CHANNELS) as RealtimeModel[]).find(
+        model => MODEL_CHANNELS[model].dataKey === e.key
+      );
+
+      if (modelFromDataKey) {
+        const data = normalizeRecords(JSON.parse(e.newValue || '[]'));
+        if (modelFromDataKey === activeModel || data.length > 0) {
+          applyModelData(modelFromDataKey, data);
         }
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
     
-    // Load initial state from localStorage
-    const savedStreamingState = localStorage.getItem('fraud_detection_streaming');
-    if (savedStreamingState !== null) {
-      setIsStreaming(savedStreamingState === 'true');
-    }
-    
-    const savedData = localStorage.getItem('fraud_detection_data');
-    if (savedData) {
-      try {
-        const data = JSON.parse(savedData);
-        if (Array.isArray(data)) {
-          setRecords(data);
-          recordsRef.current = data;
-          updateStatsFromRecords(data);
-        }
-      } catch (error) {
-        console.error('Error loading initial data:', error);
+    // Load initial model and data from localStorage
+    const initialModel = resolveActiveStreamingModel() || 'autoencoder';
+    setActiveModel(initialModel);
+    setIsStreaming(resolveActiveStreamingModel() !== null);
+
+    const initialData = readModelData(initialModel);
+    applyModelData(initialModel, initialData);
+
+    if (initialData.length === 0 && initialModel !== 'snn') {
+      const snnData = readModelData('snn');
+      if (snnData.length > 0) {
+        applyModelData('snn', snnData);
       }
     }
 
     // Poll for data updates (fallback for same-window updates)
     const pollInterval = setInterval(() => {
-      const currentData = localStorage.getItem('fraud_detection_data');
-      if (currentData) {
-        try {
-          const data = JSON.parse(currentData);
-          if (Array.isArray(data) && JSON.stringify(data) !== JSON.stringify(recordsRef.current)) {
-            setRecords(data);
-            recordsRef.current = data;
-            updateStatsFromRecords(data);
-          }
-        } catch (error) {
-          // Ignore parsing errors
-        }
+      const streamingModel = resolveActiveStreamingModel() || activeModel;
+      const data = readModelData(streamingModel);
+      if (JSON.stringify(data) !== JSON.stringify(recordsRef.current)) {
+        applyModelData(streamingModel, data);
       }
     }, 500);
 
@@ -157,7 +223,7 @@ const Streaming: React.FC = () => {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [activeModel, applyModelData, normalizeRecords, readModelData]);
 
   // Update statistics from records data
   const updateStatsFromRecords = useCallback((data: any[]) => {
@@ -253,6 +319,8 @@ const Streaming: React.FC = () => {
   ];
 
   const maxChartValue = Math.max(...fraudChartData.map(d => d.value), 1);
+  const activeModelLabel =
+    activeModel === 'autoencoder' ? 'Autoencoder' : activeModel === 'lstm' ? 'LSTM' : 'SNN';
 
   return (
     <div className="streaming-content">
@@ -344,6 +412,19 @@ const Streaming: React.FC = () => {
             <Server className="nav-icon" size={20} />
             <span>Analytics</span>
           </a>
+          <a href="/snnreal" className="nav-item" style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            color: 'rgba(148, 163, 184, 1)',
+            marginBottom: '8px'
+          }}>
+            <Zap className="nav-icon" size={20} />
+            <span>SNN</span>
+          </a>
         </nav>
       
         <div className="sidebar-footer" style={{ padding: '24px', marginTop: 'auto' }}>
@@ -410,6 +491,22 @@ const Streaming: React.FC = () => {
               <span>Back to Dashboard</span>
             </button>
             <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>Live Transaction Stream</h1>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              borderRadius: '999px',
+              background: 'rgba(59, 130, 246, 0.12)',
+              border: '1px solid rgba(59, 130, 246, 0.35)',
+              color: '#93c5fd',
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '0.02em'
+            }}>
+              <Cpu size={14} />
+              <span>Active Model: {activeModelLabel}</span>
+            </div>
             <div className="stream-indicator" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div className={`live-dot ${isStreaming ? 'streaming' : ''}`} style={{
                 width: '12px',
@@ -835,6 +932,10 @@ const Streaming: React.FC = () => {
             <div className="stats-info">
               <span className="info-label">Processed:</span>
               <span className="info-value">{stats.totalReceived} records</span>
+            </div>
+            <div className="stats-info">
+              <span className="info-label">Model:</span>
+              <span className="info-value">{activeModelLabel}</span>
             </div>
           </div>
           <div className="footer-meta">

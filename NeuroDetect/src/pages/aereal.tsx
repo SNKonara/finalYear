@@ -631,6 +631,13 @@ const FraudDetectionDashboard: React.FC = () => {
           </button>
           <button 
             className="nav-item"
+            onClick={() => navigate('/snnreal')}
+          >
+            <Zap className="nav-icon" />
+            <span>SNN</span>
+          </button>
+          <button 
+            className="nav-item"
             onClick={() => navigate('/batch-upload')}
           >
             <Briefcase className="nav-icon" />
@@ -669,15 +676,6 @@ const FraudDetectionDashboard: React.FC = () => {
               <div className="threshold-label">Detection Threshold</div>
             </div>
           </div>
-          <div className="accuracy-display">
-            <Percent className="accuracy-icon" />
-            <div>
-              <div className="accuracy-value">
-                {(100 - modelStats.fraud_rate).toFixed(1)}%
-              </div>
-              <div className="accuracy-label">Accuracy</div>
-            </div>
-          </div>
         </div>
       </aside>
 
@@ -692,8 +690,8 @@ const FraudDetectionDashboard: React.FC = () => {
           
           <div className="topbar-right">
             <div className="model-arch">
-              <GitBranch className="arch-icon" />
-              <span>{modelInfo.architecture}</span>
+              <Percent className="arch-icon" />
+              <span>Accuracy: {(100 - modelStats.fraud_rate).toFixed(1)}%</span>
             </div>
             
             <div className="control-group">

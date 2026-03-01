@@ -476,14 +476,14 @@ class UnifiedFraudDetectionServer:
             is_fraud = prob >= decision_threshold
             confidence = prob if is_fraud else (1.0 - prob)
 
-            if prob < 0.3:
+            if is_fraud:
+                risk = 'High'
+            elif prob < 0.3:
                 risk = 'Low'
             elif prob < 0.5:
                 risk = 'Medium-Low'
-            elif prob < 0.7:
-                risk = 'Medium-High'
             else:
-                risk = 'High'
+                risk = 'Medium-High'
 
             processing_time = (time.time() - start_time) * 1000
 
@@ -562,12 +562,12 @@ class UnifiedFraudDetectionServer:
             fraud_prob = min(error_value / self.ae_threshold, 1.0)
             
             # Determine risk level
-            if fraud_prob < 0.3:
-                risk = "Low"
-            elif fraud_prob < 0.7:
-                risk = "Medium"
-            else:
+            if is_fraud:
                 risk = "High"
+            elif fraud_prob < 0.7:
+                risk = "Low"
+            else:
+                risk = "Medium"
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000
@@ -666,14 +666,14 @@ class UnifiedFraudDetectionServer:
             confidence = fraud_score if is_fraud else (1 - fraud_score)
             
             # Determine risk level
-            if fraud_score < 0.3:
+            if is_fraud:
+                risk = "High"
+            elif fraud_score < 0.3:
                 risk = "Low"
             elif fraud_score < 0.5:
                 risk = "Medium-Low"
-            elif fraud_score < 0.7:
-                risk = "Medium-High"
             else:
-                risk = "High"
+                risk = "Medium-High"
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000

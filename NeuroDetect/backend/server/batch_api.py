@@ -12,6 +12,7 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 import torch
+import joblib
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
@@ -34,6 +35,7 @@ from AEmodel.preprocessor import DataPreprocessor as AEPreprocessor
 from AEmodel.model import FraudAutoencoder
 from LSTMmodel.preprocessor import prepare_improved_lstm_data
 from LSTMmodel.save_load import load_model as load_lstm_model
+from SNNmodel.customer_behavior_snn import SpikingFraudDetector
 from database.mongodb import get_mongodb_instance
 
 # Setup logging
@@ -64,12 +66,14 @@ MODEL_CONFIGS = {}
 # batch_api.py is at: C:\finalYear\NeuroDetect\backend\server\batch_api.py
 # We need to reach: C:\finalYear\saved_models
 BASE_DIR = Path(__file__).parent.parent.parent.parent  # Go up to C:\finalYear
+PROJECT_DIR = Path(__file__).parent.parent.parent  # C:\finalYear\NeuroDetect
 SAVED_MODELS_DIR = BASE_DIR / "saved_models"
 RESULTS_DIR = BASE_DIR / "results" / "batch"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Log paths for debugging
 logger.info(f"BASE_DIR: {BASE_DIR.absolute()}")
+logger.info(f"PROJECT_DIR: {PROJECT_DIR.absolute()}")
 logger.info(f"SAVED_MODELS_DIR: {SAVED_MODELS_DIR.absolute()}")
 logger.info(f"SAVED_MODELS_DIR exists: {SAVED_MODELS_DIR.exists()}")
 
@@ -222,6 +226,271 @@ class BatchProcessor:
         except Exception as e:
             logger.error(f"Failed to load LSTM: {e}", exc_info=True)
             return False
+
+    def _find_snn_package_dir(self) -> Optional[Path]:
+        """Find an SNN package directory that contains model/scaler/features files."""
+        candidate_dirs = [
+            PROJECT_DIR / "backend" / "snn_models" / "final_customer_snn_package",
+            BASE_DIR / "backend" / "snn_models" / "final_customer_snn_package",
+            BASE_DIR / "backend" / "server" / "snn_models" / "final_customer_snn_package",
+            BASE_DIR / "snn_models" / "final_customer_snn_package",
+        ]
+
+        required_files = ["snn_customer_classifier.pth", "scaler.pkl", "features.json"]
+
+        for candidate in candidate_dirs:
+            if candidate.exists() and all((candidate / fname).exists() for fname in required_files):
+                return candidate
+
+        search_roots = [
+            PROJECT_DIR / "backend" / "snn_models",
+            BASE_DIR / "backend" / "snn_models",
+            BASE_DIR / "backend" / "server" / "snn_models",
+            BASE_DIR / "snn_models",
+        ]
+
+        valid_dirs = []
+        for root in search_roots:
+            if not root.exists():
+                continue
+            for model_path in root.rglob("snn_customer_classifier.pth"):
+                package_dir = model_path.parent
+                if all((package_dir / fname).exists() for fname in required_files):
+                    valid_dirs.append(package_dir)
+
+        if not valid_dirs:
+            return None
+
+        valid_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+        return valid_dirs[0]
+
+    def load_snn_model(self):
+        """Load customer-centric SNN model package."""
+        try:
+            logger.info("Loading SNN model...")
+
+            snn_dir = self._find_snn_package_dir()
+            if snn_dir is None:
+                raise FileNotFoundError("Could not find a valid SNN package directory")
+
+            logger.info(f"Using SNN package directory: {snn_dir}")
+
+            model_path = snn_dir / "snn_customer_classifier.pth"
+            scaler_path = snn_dir / "scaler.pkl"
+            features_path = snn_dir / "features.json"
+            profiles_path = snn_dir / "customer_profiles.json"
+            metadata_path = snn_dir / "training_metadata.json"
+
+            checkpoint = torch.load(model_path, map_location='cpu')
+
+            model = SpikingFraudDetector(
+                input_size=int(checkpoint.get('input_size', 24)),
+                hidden_size=int(checkpoint.get('hidden_size', 64)),
+                output_size=int(checkpoint.get('output_size', 2)),
+                beta=float(checkpoint.get('beta', 0.95)),
+            )
+            model.load_state_dict(checkpoint['model_state_dict'])
+            model.to(self.device)
+            model.eval()
+
+            scaler = joblib.load(scaler_path)
+
+            with open(features_path, 'r', encoding='utf-8') as f:
+                feature_info = json.load(f)
+            feature_names = feature_info.get('feature_names', checkpoint.get('feature_names', []))
+
+            customer_profiles = {}
+            if profiles_path.exists():
+                with open(profiles_path, 'r', encoding='utf-8') as f:
+                    customer_profiles = json.load(f)
+
+            metadata = {}
+            if metadata_path.exists():
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+
+            threshold_policy = metadata.get('threshold_policy', {})
+            test_metrics = metadata.get('test_metrics', {})
+
+            base_threshold = float(test_metrics.get('optimal_threshold', checkpoint.get('optimal_threshold', 0.5)))
+            threshold_scale = float(threshold_policy.get('threshold_scale', 1.0))
+            global_threshold = float(threshold_policy.get('global_threshold', base_threshold))
+            unknown_customer_policy = str(threshold_policy.get('unknown_customer_policy', 'global'))
+            time_steps = int(metadata.get('time_steps', checkpoint.get('time_steps', 20)))
+
+            MODELS['snn'] = model
+            PREPROCESSORS['snn'] = {
+                'scaler': scaler,
+                'customer_profiles': customer_profiles,
+            }
+            MODEL_CONFIGS['snn'] = {
+                'threshold': base_threshold,
+                'threshold_scale': threshold_scale,
+                'global_threshold': global_threshold,
+                'unknown_customer_policy': unknown_customer_policy,
+                'time_steps': time_steps,
+                'feature_names': feature_names,
+                'num_features': len(feature_names),
+                'architecture': f"SNN-FC{int(checkpoint.get('input_size', len(feature_names) or 24))}-{int(checkpoint.get('hidden_size', 64))}-{int(checkpoint.get('hidden_size', 64))}-2",
+                'device': str(self.device),
+                'performance': {
+                    'accuracy': float(test_metrics.get('accuracy', 0.0)),
+                    'precision': float(test_metrics.get('precision', 0.0)),
+                    'recall': float(test_metrics.get('recall', 0.0)),
+                    'f1': float(test_metrics.get('f1', 0.0)),
+                    'auc': float(test_metrics.get('auc', 0.0)),
+                },
+                'model_dir': str(snn_dir),
+            }
+
+            logger.info(
+                f"✓ SNN loaded successfully - {len(feature_names)} features, "
+                f"threshold: {base_threshold:.6f}, time_steps: {time_steps}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load SNN: {e}", exc_info=True)
+            return False
+
+    def _build_snn_feature_vector(self, transaction_data: dict, feature_names: list[str]):
+        """Build SNN feature vector using customer-centric feature engineering."""
+        tx = dict(transaction_data)
+
+        cc_num = str(tx.get('cc_num', ''))
+        category = str(tx.get('category', 'unknown'))
+        gender = str(tx.get('gender', 'U'))
+
+        def _to_float(value, default=0.0):
+            try:
+                if value is None:
+                    return float(default)
+                return float(value)
+            except Exception:
+                return float(default)
+
+        amt = _to_float(tx.get('amt', 0.0))
+        lat = _to_float(tx.get('lat', 0.0))
+        lon = _to_float(tx.get('long', 0.0))
+        city_pop = _to_float(tx.get('city_pop', 0.0))
+        merch_lat = _to_float(tx.get('merch_lat', 0.0))
+        merch_lon = _to_float(tx.get('merch_long', 0.0))
+
+        dt_value = tx.get('trans_date_trans_time')
+        dt = pd.to_datetime(dt_value, errors='coerce')
+        if pd.isna(dt):
+            hour = int(_to_float(tx.get('hour', 0)))
+            day_of_week = int(_to_float(tx.get('day_of_week', 0)))
+            day_of_month = int(_to_float(tx.get('day_of_month', 1)))
+            month = int(_to_float(tx.get('month', 1)))
+        else:
+            hour = int(dt.hour)
+            day_of_week = int(dt.dayofweek)
+            day_of_month = int(dt.day)
+            month = int(dt.month)
+
+        distance = float(np.sqrt((lat - merch_lat) ** 2 + (lon - merch_lon) ** 2))
+        log_amt = float(np.log1p(max(amt, 0.0)))
+        amt_per_pop = float(amt / (city_pop + 1.0))
+        hour_sin = float(np.sin(2 * np.pi * hour / 24.0))
+        hour_cos = float(np.cos(2 * np.pi * hour / 24.0))
+
+        top_categories = [
+            'gas_transport', 'grocery_pos', 'home', 'shopping_pos',
+            'kids_pets', 'shopping_net', 'entertainment', 'food_dining'
+        ]
+
+        feature_map = {
+            'amt': amt,
+            'lat': lat,
+            'long': lon,
+            'city_pop': city_pop,
+            'merch_lat': merch_lat,
+            'merch_long': merch_lon,
+            'hour': float(hour),
+            'day_of_week': float(day_of_week),
+            'day_of_month': float(day_of_month),
+            'month': float(month),
+            'distance': distance,
+            'log_amt': log_amt,
+            'amt_per_pop': amt_per_pop,
+            'hour_sin': hour_sin,
+            'hour_cos': hour_cos,
+            'cat_food_dining': float(category == 'food_dining'),
+            'cat_gas_transport': float(category == 'gas_transport'),
+            'cat_grocery_pos': float(category == 'grocery_pos'),
+            'cat_home': float(category == 'home'),
+            'cat_kids_pets': float(category == 'kids_pets'),
+            'cat_other': float(category not in top_categories),
+            'cat_shopping_net': float(category == 'shopping_net'),
+            'cat_shopping_pos': float(category == 'shopping_pos'),
+            'gender_M': float(gender == 'M'),
+        }
+
+        vector = np.array([feature_map.get(fname, 0.0) for fname in feature_names], dtype=np.float32)
+        return cc_num, vector
+
+    def predict_snn(self, df: pd.DataFrame):
+        """Run SNN predictions with batch inference and customer-aware thresholds."""
+        try:
+            model = MODELS['snn']
+            config = MODEL_CONFIGS['snn']
+            scaler = PREPROCESSORS['snn']['scaler']
+            customer_profiles = PREPROCESSORS['snn'].get('customer_profiles', {})
+
+            feature_names = config['feature_names']
+            base_threshold = float(config['threshold'])
+            threshold_scale = float(config.get('threshold_scale', 1.0))
+            global_threshold = float(config.get('global_threshold', base_threshold))
+            unknown_policy = str(config.get('unknown_customer_policy', 'global'))
+            time_steps = int(config.get('time_steps', 20))
+
+            records = df.to_dict('records')
+            cc_nums = []
+            vectors = []
+
+            for record in records:
+                cc_num, vector = self._build_snn_feature_vector(record, feature_names)
+                cc_nums.append(cc_num)
+                vectors.append(vector)
+
+            X = np.vstack(vectors).astype(np.float32)
+            X_scaled = scaler.transform(X).astype(np.float32)
+            X_tensor = torch.FloatTensor(X_scaled).to(self.device)
+
+            probs = []
+            batch_size = 256
+            with torch.no_grad():
+                for i in range(0, len(X_tensor), batch_size):
+                    batch = X_tensor[i:i + batch_size]
+                    output = model(batch, num_steps=time_steps)
+                    batch_probs = torch.softmax(output, dim=1)[:, 1].detach().cpu().numpy()
+                    probs.extend(batch_probs.tolist())
+
+            fraud_scores = np.array(probs, dtype=np.float32)
+
+            decision_thresholds = []
+            for cc_num in cc_nums:
+                profile = customer_profiles.get(str(cc_num))
+                if profile is not None:
+                    thr = max(base_threshold, float(profile.get('fraud_prob_threshold', base_threshold)))
+                    thr = float(thr * threshold_scale)
+                elif unknown_policy == 'skip':
+                    thr = float('inf')
+                else:
+                    thr = max(base_threshold, global_threshold)
+                    thr = float(thr * threshold_scale)
+                decision_thresholds.append(thr)
+
+            decision_thresholds_arr = np.array(decision_thresholds, dtype=np.float32)
+            predictions = (fraud_scores >= decision_thresholds_arr).astype(int)
+
+            logger.info(f"SNN prediction complete: {predictions.sum()} frauds detected")
+            return predictions, fraud_scores
+
+        except Exception as e:
+            logger.error(f"SNN prediction error: {e}", exc_info=True)
+            raise
     
     def preprocess_data(self, df: pd.DataFrame, model_type: str):
         """Preprocess data for prediction"""
@@ -509,6 +778,7 @@ async def startup_event():
     # Load models
     ae_loaded = processor.load_autoencoder_model()
     lstm_loaded = processor.load_lstm_model()
+    snn_loaded = processor.load_snn_model()
     
     logger.info("-" * 60)
     if ae_loaded:
@@ -520,9 +790,14 @@ async def startup_event():
         logger.info("✓ LSTM ready")
     else:
         logger.error("✗ LSTM failed to load")
+
+    if snn_loaded:
+        logger.info("✓ SNN ready")
+    else:
+        logger.error("✗ SNN failed to load")
     
     logger.info("-" * 60)
-    if ae_loaded or lstm_loaded:
+    if ae_loaded or lstm_loaded or snn_loaded:
         logger.info(f"API is ready with {len(MODELS)} model(s) loaded")
     else:
         logger.error("WARNING: No models loaded! Check errors above.")
@@ -555,6 +830,10 @@ async def health_check():
             "lstm": {
                 "loaded": "lstm" in MODELS,
                 "config": MODEL_CONFIGS.get("lstm", {})
+            },
+            "snn": {
+                "loaded": "snn" in MODELS,
+                "config": MODEL_CONFIGS.get("snn", {})
             }
         },
         "paths": {
@@ -578,8 +857,13 @@ async def get_models():
             'loaded': True,
             'threshold': config.get('threshold'),
             'num_features': config.get('num_features'),
-            'feature_names': config.get('feature_names', [])[:5],  # First 5 features
-            'sequence_length': config.get('sequence_length', 'N/A')
+            'feature_names': config.get('feature_names', []),
+            'sequence_length': config.get('sequence_length', 'N/A'),
+            'architecture': config.get('architecture', 'N/A'),
+            'device': config.get('device', str(processor.device)),
+            'time_steps': config.get('time_steps', 'N/A'),
+            'expected_features': config.get('num_features'),
+            'performance': config.get('performance', {})
         }
     
     return models_info
@@ -606,15 +890,18 @@ async def test_model(model_type: str = Form(...)):
         }
         test_df = pd.DataFrame(test_data)
         
-        # Preprocess
-        X_scaled = processor.preprocess_data(test_df, model_type)
-        logger.info(f"Test preprocessing successful: shape {X_scaled.shape}")
-        
         # Predict
-        if model_type == 'autoencoder':
-            predictions, fraud_scores = processor.predict_autoencoder(X_scaled)
+        if model_type == 'snn':
+            predictions, fraud_scores = processor.predict_snn(test_df)
+            logger.info("SNN test prediction successful")
         else:
-            predictions, fraud_scores = processor.predict_lstm(X_scaled)
+            X_scaled = processor.preprocess_data(test_df, model_type)
+            logger.info(f"Test preprocessing successful: shape {X_scaled.shape}")
+
+            if model_type == 'autoencoder':
+                predictions, fraud_scores = processor.predict_autoencoder(X_scaled)
+            else:
+                predictions, fraud_scores = processor.predict_lstm(X_scaled)
         
         logger.info(f"Test prediction successful: {predictions[0]}, score: {fraud_scores[0]}")
         
@@ -644,7 +931,7 @@ async def process_batch(
     
     Args:
         file: CSV file with transaction data
-        model_type: 'autoencoder' or 'lstm'
+        model_type: 'autoencoder', 'lstm', or 'snn'
         threshold: Optional custom threshold
     """
     try:
@@ -671,17 +958,19 @@ async def process_batch(
         # Store original data
         original_df = df.copy()
         
-        # Preprocess (returns numpy array)
-        logger.info(f"Preprocessing with {model_type}...")
-        X_scaled = processor.preprocess_data(df, model_type)
-        logger.info(f"Preprocessed shape: {X_scaled.shape}")
-        
         # Predict
         logger.info(f"Running {model_type} predictions...")
-        if model_type == 'autoencoder':
-            predictions, fraud_scores = processor.predict_autoencoder(X_scaled)
-        else:  # lstm
-            predictions, fraud_scores = processor.predict_lstm(X_scaled)
+        if model_type == 'snn':
+            predictions, fraud_scores = processor.predict_snn(df)
+        else:
+            logger.info(f"Preprocessing with {model_type}...")
+            X_scaled = processor.preprocess_data(df, model_type)
+            logger.info(f"Preprocessed shape: {X_scaled.shape}")
+
+            if model_type == 'autoencoder':
+                predictions, fraud_scores = processor.predict_autoencoder(X_scaled)
+            else:  # lstm
+                predictions, fraud_scores = processor.predict_lstm(X_scaled)
         
         logger.info(f"Predictions complete: {predictions.sum()} frauds detected out of {len(predictions)}")
         
@@ -694,10 +983,25 @@ async def process_batch(
                 predictions = (fraud_scores >= threshold).astype(int)
             logger.info(f"After custom threshold: {predictions.sum()} frauds detected")
         
+        # Resolve effective threshold used for this run
+        effective_threshold = threshold if threshold is not None else MODEL_CONFIGS[model_type]['threshold']
+
         # Prepare results
         results_df = original_df.copy()
         results_df['prediction'] = predictions
         results_df['fraud_score'] = fraud_scores
+
+        # Risk level semantics: High means flagged fraud.
+        # Non-fraud transactions are split by proximity to threshold.
+        threshold_denom = max(float(effective_threshold), 1e-9)
+        score_ratio = fraud_scores / threshold_denom
+        risk_levels = np.where(
+            predictions == 1,
+            'High',
+            np.where(score_ratio >= 0.7, 'Medium', 'Low')
+        )
+        results_df['risk_level'] = risk_levels
+
         results_df['batch_id'] = batch_id
         
         # Calculate statistics
@@ -709,7 +1013,7 @@ async def process_batch(
             'avg_fraud_score': float(fraud_scores.mean()),
             'max_fraud_score': float(fraud_scores.max()),
             'min_fraud_score': float(fraud_scores.min()),
-            'threshold': threshold if threshold else MODEL_CONFIGS[model_type]['threshold']
+            'threshold': float(effective_threshold)
         }
         
         # Save to MongoDB (batch summary and fraud results)

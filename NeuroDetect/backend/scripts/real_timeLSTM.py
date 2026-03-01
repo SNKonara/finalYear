@@ -203,15 +203,15 @@ class LSTMFraudDetector:
             confidence = abs(fraud_prob - self.optimal_threshold) / self.optimal_threshold
             confidence = min(confidence, 1.0)
             
-            # Determine risk level
-            if fraud_prob < self.optimal_threshold * 0.5:
+            # Determine risk level (High means flagged fraud)
+            if is_fraud:
+                risk = "High"
+            elif fraud_prob < self.optimal_threshold * 0.5:
                 risk = "Low"
             elif fraud_prob < self.optimal_threshold:
                 risk = "Medium-Low"
-            elif fraud_prob < self.optimal_threshold * 1.5:
-                risk = "Medium-High"
             else:
-                risk = "High"
+                risk = "Medium-High"
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000  # ms

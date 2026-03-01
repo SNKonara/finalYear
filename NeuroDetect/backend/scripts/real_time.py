@@ -183,13 +183,13 @@ class WebSocketFraudDetector:
             is_fraud = error_value > self.threshold
             fraud_prob = min(error_value / self.threshold, 1.0)
             
-            # Determine risk level
-            if fraud_prob < 0.3:
-                risk = "Low"
-            elif fraud_prob < 0.7:
-                risk = "Medium"
-            else:
+            # Determine risk level (High means flagged fraud)
+            if is_fraud:
                 risk = "High"
+            elif fraud_prob < 0.7:
+                risk = "Low"
+            else:
+                risk = "Medium"
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000  # ms

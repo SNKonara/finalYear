@@ -16,6 +16,8 @@ import './pages/css/aereal.css';
 import LSTMFraudDetectionDashboard from './pages/lstmreal.tsx';
 import './pages/css/lstmreal.css';
 
+import SNNFraudDetectionDashboard from './pages/snnreal.tsx';
+
 import BatchProcessing from './pages/batch_upload.tsx';
 import './pages/css/batch_upload.css'; 
 
@@ -25,6 +27,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <Routes>
         <Route path="/" element={<FraudDetectionDashboard />} />
         <Route path="/lstmreal" element={<LSTMFraudDetectionDashboard />} />
+        <Route path="/snnreal" element={<SNNFraudDetectionDashboard />} />
         <Route path="/streaming" element={<Streaming />} />
         <Route path="/batch-upload" element={<BatchProcessing />} />
       </Routes>

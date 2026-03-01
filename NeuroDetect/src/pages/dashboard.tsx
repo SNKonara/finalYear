@@ -9,6 +9,7 @@ import {
   Settings,
   Shield,
   Activity,
+  Zap,
   Filter,
   ArrowUp,
   ArrowDown,
@@ -323,6 +324,27 @@ const App: React.FC = () => {
           >
             <Server className="nav-icon" size={20} />
             <span>Analytics</span>
+          </button>
+          <button 
+            className="nav-item"
+            onClick={() => window.location.assign('/snnreal')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              width: '100%',
+              background: 'transparent',
+              color: 'rgba(148, 163, 184, 1)',
+              cursor: 'pointer',
+              marginBottom: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Zap className="nav-icon" size={20} />
+            <span>SNN</span>
           </button>
         </nav>
       

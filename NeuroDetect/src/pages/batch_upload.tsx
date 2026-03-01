@@ -170,65 +170,91 @@ const BatchProcessing: React.FC = () => {
     const loadModelInfo = async () => {
       setIsLoadingModel(true);
       setModelLoadError(null);
-      
-      // Simulate loading model info (in real app, this would be an API call)
-      setTimeout(() => {
-        try {
-          // Mock model info based on selected model
-          const mockModelInfo: Record<string, ModelInfo> = {
-            autoencoder: {
-              input_dim: 24,
-              architecture: '128-64-16',
-              threshold: 0.0004117581993341446,
-              device: 'cuda',
-              expected_features: 24,
-              feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'hour', 'day_of_week', 'day_of_month', 'month', 'distance', 'log_amt', 'amt_per_pop', 'hour_sin', 'hour_cos', 'cat_food_dining', 'cat_gas_transport', 'cat_grocery_pos', 'cat_home', 'cat_kids_pets', 'cat_other', 'cat_shopping_net', 'cat_shopping_pos', 'gender_M'],
-              performance: {
-                f1_score: 0.892,
-                fraud_f1: 0.856,
-                fraud_recall: 0.834,
-                roc_auc: 0.945
-              }
-            },
-            lstm: {
-              input_dim: 24,
-              architecture: 'Bidirectional LSTM with Attention (Hidden: 256, Layers: 2)',
-              threshold: 0.86851567029953,
-              device: 'cuda',
-              expected_features: 24,
-              feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'hour', 'day_of_week', 'day_of_month', 'month', 'distance', 'log_amt', 'amt_per_pop', 'hour_sin', 'hour_cos', 'cat_food_dining', 'cat_gas_transport', 'cat_grocery_pos', 'cat_home', 'cat_kids_pets', 'cat_other', 'cat_shopping_net', 'cat_shopping_pos', 'gender_M'],
-              performance: {
-                f1_score: 0.9925,
-                fraud_f1: 0.9925,
-                fraud_recall: 0.9980,
-                roc_auc: 0.9992
-              }
-            },
-            snn: {
-              input_dim: 89,
-              architecture: 'SNN with SELU (256-128-64)',
-              threshold: 0.45,
-              device: 'cuda',
-              expected_features: 89,
-              feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'category_encoded', 'gender_encoded'],
-              performance: {
-                f1_score: 0.904,
-                fraud_f1: 0.875,
-                fraud_recall: 0.852,
-                roc_auc: 0.951
-              }
-            }
-          };
 
-          const info = mockModelInfo[selectedModel];
-          setModelInfo(info);
-          setThreshold(info.threshold);
-          setIsLoadingModel(false);
-        } catch (error) {
-          setModelLoadError('Failed to load model information');
-          setIsLoadingModel(false);
+      const fallbackModelInfo: Record<string, ModelInfo> = {
+        autoencoder: {
+          input_dim: 24,
+          architecture: '128-64-16',
+          threshold: 0.0004117581993341446,
+          device: 'cpu',
+          expected_features: 24,
+          feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'hour', 'day_of_week', 'day_of_month', 'month', 'distance', 'log_amt', 'amt_per_pop', 'hour_sin', 'hour_cos', 'cat_food_dining', 'cat_gas_transport', 'cat_grocery_pos', 'cat_home', 'cat_kids_pets', 'cat_other', 'cat_shopping_net', 'cat_shopping_pos', 'gender_M'],
+          performance: {
+            f1_score: 0.892,
+            fraud_f1: 0.856,
+            fraud_recall: 0.834,
+            roc_auc: 0.945
+          }
+        },
+        lstm: {
+          input_dim: 24,
+          architecture: 'Bidirectional LSTM with Attention (Hidden: 256, Layers: 2)',
+          threshold: 0.86851567029953,
+          device: 'cpu',
+          expected_features: 24,
+          feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'hour', 'day_of_week', 'day_of_month', 'month', 'distance', 'log_amt', 'amt_per_pop', 'hour_sin', 'hour_cos', 'cat_food_dining', 'cat_gas_transport', 'cat_grocery_pos', 'cat_home', 'cat_kids_pets', 'cat_other', 'cat_shopping_net', 'cat_shopping_pos', 'gender_M'],
+          performance: {
+            f1_score: 0.9925,
+            fraud_f1: 0.9925,
+            fraud_recall: 0.998,
+            roc_auc: 0.9992
+          }
+        },
+        snn: {
+          input_dim: 24,
+          architecture: 'SNN-FC24-64-64-2',
+          threshold: 0.5,
+          device: 'cpu',
+          expected_features: 24,
+          feature_names: ['amt', 'lat', 'long', 'city_pop', 'merch_lat', 'merch_long', 'hour', 'day_of_week', 'day_of_month', 'month', 'distance', 'log_amt', 'amt_per_pop', 'hour_sin', 'hour_cos', 'cat_food_dining', 'cat_gas_transport', 'cat_grocery_pos', 'cat_home', 'cat_kids_pets', 'cat_other', 'cat_shopping_net', 'cat_shopping_pos', 'gender_M'],
+          performance: {
+            f1_score: 0.0,
+            fraud_f1: 0.0,
+            fraud_recall: 0.0,
+            roc_auc: 0.0
+          }
         }
-      }, 1500);
+      };
+
+      try {
+        const response = await fetch('http://localhost:8000/models');
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch model info from backend');
+        }
+
+        const modelsData = await response.json();
+        const backendModel = modelsData?.[selectedModel];
+
+        if (!backendModel?.loaded) {
+          throw new Error(`${selectedModel.toUpperCase()} model is not loaded on backend`);
+        }
+
+        const normalizedInfo: ModelInfo = {
+          input_dim: backendModel.input_dim ?? backendModel.num_features ?? backendModel.expected_features ?? 0,
+          architecture: backendModel.architecture ?? 'N/A',
+          threshold: backendModel.threshold ?? 0.5,
+          device: backendModel.device ?? 'cpu',
+          expected_features: backendModel.expected_features ?? backendModel.num_features ?? 0,
+          feature_names: backendModel.feature_names ?? [],
+          performance: {
+            f1_score: backendModel.performance?.f1_score ?? backendModel.performance?.f1,
+            fraud_f1: backendModel.performance?.fraud_f1 ?? backendModel.performance?.f1,
+            fraud_recall: backendModel.performance?.fraud_recall ?? backendModel.performance?.recall,
+            roc_auc: backendModel.performance?.roc_auc ?? backendModel.performance?.auc,
+          }
+        };
+
+        setModelInfo(normalizedInfo);
+        setThreshold(normalizedInfo.threshold);
+      } catch (error) {
+        const fallback = fallbackModelInfo[selectedModel];
+        setModelInfo(fallback);
+        setThreshold(fallback.threshold);
+        setModelLoadError('Using fallback model info because backend model metadata could not be loaded.');
+      } finally {
+        setIsLoadingModel(false);
+      }
     };
 
     loadModelInfo();
@@ -342,7 +368,13 @@ const BatchProcessing: React.FC = () => {
         fraud_score: item.fraud_score || 0,
         fraud_prediction: item.prediction || 0,
         fraud_probability: item.fraud_score || 0,
-        risk_category: item.fraud_score > 0.7 ? 'High' : item.fraud_score > 0.3 ? 'Medium' : 'Low',
+        risk_category:
+          item.risk_level ||
+          ((item.prediction || 0) === 1
+            ? 'High'
+            : (item.fraud_score || 0) > ((data.statistics?.threshold || threshold) * 0.7)
+              ? 'Medium'
+              : 'Low'),
         processing_time_ms: 25
       }));
 
@@ -500,6 +532,13 @@ const BatchProcessing: React.FC = () => {
           >
             <Target className="nav-icon" />
             <span>LSTM</span>
+          </button>
+          <button 
+            className="nav-item"
+            onClick={() => navigate('/snnreal')}
+          >
+            <Zap className="nav-icon" />
+            <span>SNN</span>
           </button>
           <button 
             className={`nav-item ${activeTab === 'upload' ? 'active' : ''}`}
