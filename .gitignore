@@ -1,0 +1,21 @@
+# Root-level editor files
+.vscode/
+
+# Generated outputs and experiment artifacts
+results/**
+!results/.gitkeep
+saved_models/**
+snn_models/**
+
+# Model/training outputs under project folders
+NeuroDetect/backend/server/snn_models/**
+NeuroDetect/backend/snn_models/**
+NeuroDetect/backend/snn_models/**/*.zip
+
+# Common ML binaries
+*.pth
+*.pt
+*.pkl
+*.joblib
+*.h5
+*.hdf5
