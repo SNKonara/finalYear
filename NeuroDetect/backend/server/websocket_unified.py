@@ -1,7 +1,7 @@
 # websocket_unified_server.py
 """
-Unified WebSocket Server for Both Autoencoder and LSTM Fraud Detection
-Supports both models on a single port with model selection capability
+Unified WebSocket Server for Autoencoder, LSTM, and SNN Fraud Detection
+Supports model selection capability on a single port
 """
 import asyncio
 import websockets
@@ -11,6 +11,7 @@ import numpy as np
 import re
 import os
 import sys
+import joblib
 from datetime import datetime, timedelta
 import time
 import torch
@@ -25,6 +26,9 @@ from AEmodel.model import FraudAutoencoder
 
 # LSTM imports
 from LSTMmodel.save_load import load_model as load_lstm_model
+
+# SNN imports
+from SNNmodel.customer_behavior_snn import SpikingFraudDetector
 
 # Database import
 from database.mongodb import get_mongodb_instance
@@ -68,6 +72,20 @@ class UnifiedFraudDetectionServer:
         self.lstm_threshold = 0.5
         self.lstm_device = None
         self.lstm_model_info = {}
+
+        # SNN components
+        self.snn_model = None
+        self.snn_scaler = None
+        self.snn_feature_names = []
+        self.snn_profiles = {}
+        self.snn_metadata = {}
+        self.snn_threshold = 0.5
+        self.snn_threshold_scale = 1.0
+        self.snn_global_threshold = 0.5
+        self.snn_unknown_customer_policy = 'global'
+        self.snn_time_steps = 20
+        self.snn_device = None
+        self.snn_model_info = {}
         
         # Statistics (separate for each model)
         self.stats = {
@@ -90,6 +108,16 @@ class UnifiedFraudDetectionServer:
                 'start_time': time.time(),
                 'risk_distribution': {'Low': 0, 'Medium-Low': 0, 'Medium-High': 0, 'High': 0},
                 'prediction_history': []
+            },
+            'snn': {
+                'total_processed': 0,
+                'fraud_detected': 0,
+                'preprocessing_errors': 0,
+                'dataset_loops': 0,
+                'avg_processing_time': 0,
+                'start_time': time.time(),
+                'risk_distribution': {'Low': 0, 'Medium-Low': 0, 'Medium-High': 0, 'High': 0},
+                'prediction_history': []
             }
         }
         
@@ -104,6 +132,7 @@ class UnifiedFraudDetectionServer:
         # Load both models
         self.load_autoencoder_model()
         self.load_lstm_model()
+        self.load_snn_model()
     
     def connect_database(self):
         """Initialize MongoDB connection"""
@@ -232,6 +261,275 @@ class UnifiedFraudDetectionServer:
             print(f"❌ Failed to load LSTM model: {e}")
             import traceback
             traceback.print_exc()
+
+    def load_snn_model(self):
+        """Load the packaged customer-centric SNN fraud detection model"""
+        print("\n🤖 Loading SNN Model...")
+
+        try:
+            snn_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'snn_models',
+                'final_customer_snn_package'
+            )
+
+            model_path = os.path.join(snn_dir, 'snn_customer_classifier.pth')
+            scaler_path = os.path.join(snn_dir, 'scaler.pkl')
+            features_path = os.path.join(snn_dir, 'features.json')
+            profiles_path = os.path.join(snn_dir, 'customer_profiles.json')
+            metadata_path = os.path.join(snn_dir, 'training_metadata.json')
+
+            checkpoint = torch.load(model_path, map_location='cpu')
+
+            self.snn_model = SpikingFraudDetector(
+                input_size=int(checkpoint.get('input_size', 24)),
+                hidden_size=int(checkpoint.get('hidden_size', 64)),
+                output_size=int(checkpoint.get('output_size', 2)),
+                beta=float(checkpoint.get('beta', 0.95)),
+            )
+            self.snn_model.load_state_dict(checkpoint['model_state_dict'])
+
+            self.snn_scaler = joblib.load(scaler_path)
+
+            if os.path.exists(features_path):
+                with open(features_path, 'r', encoding='utf-8') as f:
+                    feat_info = json.load(f)
+                    self.snn_feature_names = feat_info.get('feature_names', checkpoint.get('feature_names', []))
+            else:
+                self.snn_feature_names = checkpoint.get('feature_names', [])
+
+            if os.path.exists(profiles_path):
+                with open(profiles_path, 'r', encoding='utf-8') as f:
+                    self.snn_profiles = json.load(f)
+            else:
+                self.snn_profiles = {}
+
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    self.snn_metadata = json.load(f)
+            else:
+                self.snn_metadata = {}
+
+            threshold_policy = self.snn_metadata.get('threshold_policy', {})
+            test_metrics = self.snn_metadata.get('test_metrics', {})
+
+            self.snn_threshold = float(test_metrics.get('optimal_threshold', checkpoint.get('optimal_threshold', 0.5)))
+            self.snn_threshold_scale = float(threshold_policy.get('threshold_scale', 1.0))
+            self.snn_global_threshold = float(threshold_policy.get('global_threshold', self.snn_threshold))
+            self.snn_unknown_customer_policy = str(threshold_policy.get('unknown_customer_policy', 'global'))
+            self.snn_time_steps = int(self.snn_metadata.get('time_steps', checkpoint.get('time_steps', 20)))
+
+            self.snn_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.snn_model = self.snn_model.to(self.snn_device)
+            self.snn_model.eval()
+
+            self.snn_model_info = {
+                'model_type': 'SNN',
+                'input_dim': int(checkpoint.get('input_size', len(self.snn_feature_names) or 24)),
+                'architecture': f"SNN-FC{int(checkpoint.get('input_size', 24))}-{int(checkpoint.get('hidden_size', 64))}-{int(checkpoint.get('hidden_size', 64))}-2",
+                'threshold': float(self.snn_threshold),
+                'threshold_scale': float(self.snn_threshold_scale),
+                'global_threshold': float(self.snn_global_threshold),
+                'unknown_customer_policy': self.snn_unknown_customer_policy,
+                'time_steps': int(self.snn_time_steps),
+                'device': str(self.snn_device),
+                'expected_features': len(self.snn_feature_names),
+                'feature_names': self.snn_feature_names,
+                'performance': {
+                    'accuracy': self.snn_metadata.get('test_metrics', {}).get('accuracy', 0),
+                    'precision': self.snn_metadata.get('test_metrics', {}).get('precision', 0),
+                    'recall': self.snn_metadata.get('test_metrics', {}).get('recall', 0),
+                    'f1': self.snn_metadata.get('test_metrics', {}).get('f1', 0),
+                    'auc': self.snn_metadata.get('test_metrics', {}).get('auc', 0),
+                }
+            }
+
+            print(f"✅ SNN Model Loaded Successfully")
+            print(f"   Input dimensions: {self.snn_model_info['input_dim']}")
+            print(f"   Time steps: {self.snn_time_steps}")
+            print(f"   Threshold: {self.snn_threshold:.6f} (scale={self.snn_threshold_scale:.2f})")
+            print(f"   F1 Score: {self.snn_model_info['performance'].get('f1', 0):.4f}")
+
+        except Exception as e:
+            print(f"❌ Failed to load SNN model: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _build_snn_feature_vector(self, transaction_data):
+        """Build SNN feature vector using same feature engineering as training."""
+        tx = dict(transaction_data)
+
+        cc_num = str(tx.get('cc_num', ''))
+        category = str(tx.get('category', 'unknown'))
+        gender = str(tx.get('gender', 'U'))
+
+        def _to_float(value, default=0.0):
+            try:
+                if value is None:
+                    return float(default)
+                return float(value)
+            except Exception:
+                return float(default)
+
+        amt = _to_float(tx.get('amt', 0.0))
+        lat = _to_float(tx.get('lat', 0.0))
+        lon = _to_float(tx.get('long', 0.0))
+        city_pop = _to_float(tx.get('city_pop', 0.0))
+        merch_lat = _to_float(tx.get('merch_lat', 0.0))
+        merch_lon = _to_float(tx.get('merch_long', 0.0))
+
+        dt_value = tx.get('trans_date_trans_time')
+        dt = pd.to_datetime(dt_value, errors='coerce')
+        if pd.isna(dt):
+            hour = int(_to_float(tx.get('hour', 0)))
+            day_of_week = int(_to_float(tx.get('day_of_week', 0)))
+            day_of_month = int(_to_float(tx.get('day_of_month', 1)))
+            month = int(_to_float(tx.get('month', 1)))
+        else:
+            hour = int(dt.hour)
+            day_of_week = int(dt.dayofweek)
+            day_of_month = int(dt.day)
+            month = int(dt.month)
+
+        distance = float(np.sqrt((lat - merch_lat) ** 2 + (lon - merch_lon) ** 2))
+        log_amt = float(np.log1p(max(amt, 0.0)))
+        amt_per_pop = float(amt / (city_pop + 1.0))
+        hour_sin = float(np.sin(2 * np.pi * hour / 24.0))
+        hour_cos = float(np.cos(2 * np.pi * hour / 24.0))
+
+        top_categories = [
+            'gas_transport', 'grocery_pos', 'home', 'shopping_pos',
+            'kids_pets', 'shopping_net', 'entertainment', 'food_dining'
+        ]
+
+        feature_map = {
+            'amt': amt,
+            'lat': lat,
+            'long': lon,
+            'city_pop': city_pop,
+            'merch_lat': merch_lat,
+            'merch_long': merch_lon,
+            'hour': float(hour),
+            'day_of_week': float(day_of_week),
+            'day_of_month': float(day_of_month),
+            'month': float(month),
+            'distance': distance,
+            'log_amt': log_amt,
+            'amt_per_pop': amt_per_pop,
+            'hour_sin': hour_sin,
+            'hour_cos': hour_cos,
+            'cat_food_dining': float(category == 'food_dining'),
+            'cat_gas_transport': float(category == 'gas_transport'),
+            'cat_grocery_pos': float(category == 'grocery_pos'),
+            'cat_home': float(category == 'home'),
+            'cat_kids_pets': float(category == 'kids_pets'),
+            'cat_other': float(category not in top_categories),
+            'cat_shopping_net': float(category == 'shopping_net'),
+            'cat_shopping_pos': float(category == 'shopping_pos'),
+            'gender_M': float(gender == 'M'),
+        }
+
+        vector = np.array([feature_map.get(fname, 0.0) for fname in self.snn_feature_names], dtype=np.float32)
+        return cc_num, vector
+
+    def detect_fraud_snn(self, transaction_data, model_key='snn'):
+        """Run customer-centric SNN fraud detection for a single transaction."""
+        if self.snn_model is None:
+            return None
+
+        start_time = time.time()
+
+        try:
+            cc_num, feature_vector = self._build_snn_feature_vector(transaction_data)
+
+            if feature_vector.shape[0] != len(self.snn_feature_names):
+                self.stats[model_key]['preprocessing_errors'] += 1
+                return None
+
+            x_scaled = self.snn_scaler.transform(feature_vector.reshape(1, -1)).astype(np.float32)
+            x_tensor = torch.FloatTensor(x_scaled).to(self.snn_device)
+
+            with torch.no_grad():
+                output = self.snn_model(x_tensor, num_steps=self.snn_time_steps)
+                prob = float(torch.softmax(output, dim=1)[0, 1].item())
+
+            profile = self.snn_profiles.get(str(cc_num))
+            if profile is None and self.snn_unknown_customer_policy == 'skip':
+                return {
+                    'detection_status': 'skipped_unknown_customer',
+                    'is_fraud': False,
+                    'fraud_probability': prob,
+                    'decision_threshold': None,
+                    'known_customer': False,
+                    'timestamp': datetime.now().isoformat(),
+                    'model_type': 'SNN'
+                }
+
+            if profile is None:
+                decision_threshold = max(self.snn_threshold, self.snn_global_threshold)
+                known_customer = False
+            else:
+                decision_threshold = max(self.snn_threshold, float(profile.get('fraud_prob_threshold', self.snn_threshold)))
+                known_customer = True
+
+            decision_threshold = float(decision_threshold * self.snn_threshold_scale)
+            is_fraud = prob >= decision_threshold
+            confidence = prob if is_fraud else (1.0 - prob)
+
+            if prob < 0.3:
+                risk = 'Low'
+            elif prob < 0.5:
+                risk = 'Medium-Low'
+            elif prob < 0.7:
+                risk = 'Medium-High'
+            else:
+                risk = 'High'
+
+            processing_time = (time.time() - start_time) * 1000
+
+            self.stats[model_key]['total_processed'] += 1
+            if is_fraud:
+                self.stats[model_key]['fraud_detected'] += 1
+
+            self.stats[model_key]['risk_distribution'][risk] = self.stats[model_key]['risk_distribution'].get(risk, 0) + 1
+
+            if self.stats[model_key]['total_processed'] > 0:
+                total_time = (self.stats[model_key]['avg_processing_time'] * (self.stats[model_key]['total_processed'] - 1)) + processing_time
+                self.stats[model_key]['avg_processing_time'] = total_time / self.stats[model_key]['total_processed']
+
+            result = {
+                'fraud_probability': float(prob),
+                'decision_threshold': float(decision_threshold),
+                'base_threshold': float(self.snn_threshold),
+                'global_threshold': float(self.snn_global_threshold),
+                'threshold_scale': float(self.snn_threshold_scale),
+                'is_fraud': bool(is_fraud),
+                'confidence': float(confidence),
+                'risk_level': risk,
+                'known_customer': bool(known_customer),
+                'unknown_customer_policy': self.snn_unknown_customer_policy,
+                'processing_time_ms': round(processing_time, 2),
+                'timestamp': datetime.now().isoformat(),
+                'model_type': 'SNN'
+            }
+
+            self.stats[model_key]['prediction_history'].append({
+                'score': float(prob),
+                'is_fraud': bool(is_fraud),
+                'risk': risk,
+                'timestamp': result['timestamp']
+            })
+            if len(self.stats[model_key]['prediction_history']) > 100:
+                self.stats[model_key]['prediction_history'].pop(0)
+
+            return result
+
+        except Exception as e:
+            self.stats[model_key]['preprocessing_errors'] += 1
+            print(f"⚠️ SNN detection error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def detect_fraud_autoencoder(self, transaction_data, model_key='autoencoder'):
         """Run Autoencoder fraud detection"""
@@ -569,6 +867,16 @@ class UnifiedFraudDetectionServer:
                             payload['sequence_progress'] = f"{len(self.client_sequences[client_id])}/{self.sequence_length}"
                         else:
                             payload['detection_error'] = True
+                elif model_type == 'snn':
+                    # SNN detection
+                    detection_result = self.detect_fraud_snn(prepared_record)
+
+                    if detection_result:
+                        payload.update(detection_result)
+                        payload['transaction_data'] = dict(prepared_record)
+                        payload['transaction_id'] = prepared_record.get('transaction_id', f'TXN_{index:06d}')
+                    else:
+                        payload['detection_error'] = True
                 else:
                     # Autoencoder detection
                     detection_result = self.detect_fraud_autoencoder(prepared_record)
@@ -653,7 +961,7 @@ class UnifiedFraudDetectionServer:
                     
                     elif command == "set_model":
                         model_type = data.get("model", "autoencoder").lower()
-                        if model_type in ['autoencoder', 'lstm']:
+                        if model_type in ['autoencoder', 'lstm', 'snn']:
                             old_model = self.client_models.get(websocket, 'autoencoder')
                             self.client_models[websocket] = model_type
                             print(f"🔄 Client {client_id} switched from {old_model} to {model_type}")
@@ -665,17 +973,22 @@ class UnifiedFraudDetectionServer:
                             }))
                         else:
                             await websocket.send(json.dumps({
-                                "error": f"Invalid model type: {model_type}. Use 'autoencoder' or 'lstm'"
+                                "error": f"Invalid model type: {model_type}. Use 'autoencoder', 'lstm', or 'snn'"
                             }))
                     
                     elif command == "get_model_info":
                         model_type = self.client_models.get(websocket, 'autoencoder')
-                        model_info = self.lstm_model_info if model_type == 'lstm' else self.ae_model_info
+                        if model_type == 'lstm':
+                            model_info = self.lstm_model_info
+                        elif model_type == 'snn':
+                            model_info = self.snn_model_info
+                        else:
+                            model_info = self.ae_model_info
                         
                         await websocket.send(json.dumps({
                             "model_info": model_info,
                             "active_model": model_type,
-                            "available_models": ["autoencoder", "lstm"]
+                            "available_models": ["autoencoder", "lstm", "snn"]
                         }))
                     
                     elif command == "get_stats":
@@ -757,7 +1070,7 @@ class UnifiedFraudDetectionServer:
                             "active_clients": len(self.clients),
                             "stream_total_amount": self.client_totals.get(websocket, 0.0),
                             "active_model": model_type,
-                            "available_models": ["autoencoder", "lstm"],
+                            "available_models": ["autoencoder", "lstm", "snn"],
                             "stats": {
                                 'total_processed': stats['total_processed'],
                                 'fraud_detected': stats['fraud_detected'],
@@ -832,7 +1145,7 @@ async def main():
     print(f"🔌 Port: {PORT}")
     print(f"⚡ Stream Speed: {STREAM_SPEED} records/sec")
     print(f"🔢 LSTM Sequence Length: {SEQUENCE_LENGTH}")
-    print(f"🤖 Models: Autoencoder + LSTM (switchable)")
+    print(f"🤖 Models: Autoencoder + LSTM + SNN (switchable)")
     print("="*80)
     
     # Create server instance
