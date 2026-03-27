@@ -11,11 +11,17 @@ import numpy as np
 import re
 import os
 import sys
+import io
 import joblib
 from datetime import datetime, timedelta
 import time
 import torch
 from collections import deque
+
+# Force UTF-8 output on Windows (cp1252 terminal cannot encode emoji)
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -55,6 +61,9 @@ class UnifiedFraudDetectionServer:
         self.client_sequences = {}
         self.client_models = {}  # Track which model each client is using
         self.clients = set()
+        self.always_streaming = True  # Stream 24/7 without stopping
+        self.hourly_cleanup_task = None
+        self.cleanup_interval_seconds = 3600  # Check for cleanup once per hour
         
         # Autoencoder components
         self.ae_model = None
@@ -124,7 +133,7 @@ class UnifiedFraudDetectionServer:
         # MongoDB connection
         self.db = None
         
-        print(f"✅ Loaded dataset with {len(self.dataset)} records")
+        print(f" Loaded dataset with {len(self.dataset)} records")
         
         # Connect to database
         self.connect_database()
@@ -133,31 +142,84 @@ class UnifiedFraudDetectionServer:
         self.load_autoencoder_model()
         self.load_lstm_model()
         self.load_snn_model()
+
+    def _build_stats_payload(self, model_type):
+        stats = self.stats[model_type]
+        elapsed = time.time() - stats['start_time']
+        throughput = stats['total_processed'] / elapsed if elapsed > 0 else 0
+        fraud_rate = (stats['fraud_detected'] / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 0
+        success_rate = ((stats['total_processed'] - stats['preprocessing_errors']) / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 100
+        return {
+            'total_processed': stats['total_processed'],
+            'fraud_detected': stats['fraud_detected'],
+            'preprocessing_errors': stats['preprocessing_errors'],
+            'dataset_loops': stats['dataset_loops'],
+            'avg_processing_time': round(stats['avg_processing_time'], 2),
+            'throughput_tps': round(throughput, 2),
+            'fraud_rate': round(fraud_rate, 2),
+            'success_rate': round(success_rate, 2),
+            'risk_distribution': stats['risk_distribution'],
+            'prediction_history': stats['prediction_history'][-20:]
+        }
+
+    def _reset_stats_for_model(self, model_type):
+        if model_type == 'autoencoder':
+            risk_distribution = {'Low': 0, 'Medium': 0, 'High': 0}
+        else:
+            risk_distribution = {'Low': 0, 'Medium-Low': 0, 'Medium-High': 0, 'High': 0}
+
+        self.stats[model_type] = {
+            'total_processed': 0,
+            'fraud_detected': 0,
+            'preprocessing_errors': 0,
+            'dataset_loops': 0,
+            'avg_processing_time': 0,
+            'start_time': time.time(),
+            'risk_distribution': risk_distribution,
+            'prediction_history': []
+        }
+
+    def _extract_autoencoder_architecture(self, state_dict, input_dim):
+        layer_keys = ['encoder.0.weight', 'encoder.3.weight', 'encoder.6.weight']
+        hidden_layers = []
+        for key in layer_keys:
+            tensor = state_dict.get(key)
+            if tensor is not None and len(tensor.shape) == 2:
+                hidden_layers.append(int(tensor.shape[0]))
+
+        if not hidden_layers:
+            hidden_layers = [128, 64, 16]
+
+        architecture = '-'.join(str(layer) for layer in hidden_layers)
+        readable = f"Input ({input_dim}) -> {' -> '.join(str(layer) for layer in hidden_layers)} -> Output ({input_dim})"
+        return architecture, readable
     
     def connect_database(self):
         """Initialize MongoDB connection"""
         try:
-            print("\n🗄️  Checking MongoDB configuration...")
+            print("\n️  Checking MongoDB configuration...")
             self.db = get_mongodb_instance()
             if self.db.connected:
-                print("✅ MongoDB connected - results will be saved to database")
+                print(" MongoDB connected - results will be saved to database")
             else:
                 print("ℹ️  MongoDB disabled - results will be saved to local files only")
         except Exception as e:
-            print(f"⚠️  MongoDB setup error: {e}")
+            print(f"️  MongoDB setup error: {e}")
             self.db = None
     
     def load_autoencoder_model(self):
         """Load the Autoencoder fraud detection model"""
-        print("\n🤖 Loading Autoencoder Model...")
+        print("\n Loading Autoencoder Model...")
         
         try:
             model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'saved_models')
             
             # Load model checkpoint
             checkpoint_path = os.path.join(model_dir, 'autoencoder.pth')
-            checkpoint = torch.load(checkpoint_path)
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
             input_dim = checkpoint['input_dim']
+            state_dict = checkpoint['model_state_dict']
+            architecture, readable_architecture = self._extract_autoencoder_architecture(state_dict, input_dim)
             
             # Initialize model
             self.ae_model = FraudAutoencoder(
@@ -167,7 +229,7 @@ class UnifiedFraudDetectionServer:
                 latent_dim=16,
                 dropout_rate=0.000287
             )
-            self.ae_model.load_state_dict(checkpoint['model_state_dict'])
+            self.ae_model.load_state_dict(state_dict)
             self.ae_model.eval()
             
             # Load preprocessor
@@ -196,27 +258,29 @@ class UnifiedFraudDetectionServer:
             self.ae_model_info = {
                 'model_type': 'Autoencoder',
                 'input_dim': input_dim,
-                'architecture': '128-64-16',
+                'architecture': architecture,
+                'architecture_readable': readable_architecture,
                 'threshold': float(self.ae_threshold),
                 'device': str(self.ae_device),
                 'expected_features': input_dim,
                 'feature_names': checkpoint.get('feature_names', feature_info.get('feature_names', [])),
                 'num_features': feature_info.get('num_features', input_dim),
+                'performance': {},
             }
             
-            print(f"✅ Autoencoder Model Loaded Successfully")
+            print(f" Autoencoder Model Loaded Successfully")
             print(f"   Input dimensions: {input_dim}")
             print(f"   Threshold: {self.ae_threshold:.6f}")
             print(f"   Device: {self.ae_device}")
             
         except Exception as e:
-            print(f"❌ Failed to load Autoencoder model: {e}")
+            print(f" Failed to load Autoencoder model: {e}")
             import traceback
             traceback.print_exc()
     
     def load_lstm_model(self):
         """Load the LSTM fraud detection model"""
-        print("\n🤖 Loading LSTM Model...")
+        print("\n Loading LSTM Model...")
         
         try:
             model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'saved_models')
@@ -238,33 +302,39 @@ class UnifiedFraudDetectionServer:
                 'model_type': 'LSTM',
                 'input_dim': self.lstm_model_config['input_dim'],
                 'sequence_length': self.sequence_length,
-                'architecture': f"BiLSTM-{self.lstm_model_config['hidden_dim']}-{self.lstm_model_config['num_layers']}layers",
+                'architecture': f"BiLSTM-{self.lstm_model_config['hidden_dim']}-{self.lstm_model_config['num_layers']}L + Attention",
                 'threshold': float(self.lstm_threshold),
                 'device': str(self.lstm_device),
                 'expected_features': len(self.lstm_feature_names),
                 'feature_names': self.lstm_feature_names,
+                'hidden_size': int(self.lstm_model_config.get('hidden_dim', 256)),
+                'num_layers': int(self.lstm_model_config.get('num_layers', 2)),
                 'performance': {
                     'accuracy': self.lstm_results.get('accuracy', 0),
+                    'precision': self.lstm_results.get('fraud_precision', 0),
+                    'recall': self.lstm_results.get('fraud_recall', 0),
+                    'f1': self.lstm_results.get('fraud_f1', self.lstm_results.get('f1', 0)),
                     'f1_score': self.lstm_results.get('f1', 0),
                     'fraud_f1': self.lstm_results.get('fraud_f1', 0),
                     'roc_auc': self.lstm_results.get('roc_auc', 0),
+                    'auc': self.lstm_results.get('roc_auc', 0),
                 }
             }
             
-            print(f"✅ LSTM Model Loaded Successfully")
+            print(f" LSTM Model Loaded Successfully")
             print(f"   Input dimensions: {self.lstm_model_config['input_dim']}")
             print(f"   Sequence length: {self.sequence_length}")
             print(f"   Threshold: {self.lstm_threshold:.6f}")
             print(f"   F1 Score: {self.lstm_results.get('f1', 0):.4f}")
             
         except Exception as e:
-            print(f"❌ Failed to load LSTM model: {e}")
+            print(f" Failed to load LSTM model: {e}")
             import traceback
             traceback.print_exc()
 
     def load_snn_model(self):
         """Load the packaged customer-centric SNN fraud detection model"""
-        print("\n🤖 Loading SNN Model...")
+        print("\n Loading SNN Model...")
 
         try:
             snn_dir = os.path.join(
@@ -344,14 +414,14 @@ class UnifiedFraudDetectionServer:
                 }
             }
 
-            print(f"✅ SNN Model Loaded Successfully")
+            print(f" SNN Model Loaded Successfully")
             print(f"   Input dimensions: {self.snn_model_info['input_dim']}")
             print(f"   Time steps: {self.snn_time_steps}")
             print(f"   Threshold: {self.snn_threshold:.6f} (scale={self.snn_threshold_scale:.2f})")
             print(f"   F1 Score: {self.snn_model_info['performance'].get('f1', 0):.4f}")
 
         except Exception as e:
-            print(f"❌ Failed to load SNN model: {e}")
+            print(f" Failed to load SNN model: {e}")
             import traceback
             traceback.print_exc()
 
@@ -472,7 +542,9 @@ class UnifiedFraudDetectionServer:
                 decision_threshold = max(self.snn_threshold, float(profile.get('fraud_prob_threshold', self.snn_threshold)))
                 known_customer = True
 
-            decision_threshold = float(decision_threshold * self.snn_threshold_scale)
+            raw_decision_threshold = float(decision_threshold * self.snn_threshold_scale)
+            # Probabilities from softmax are in [0, 1), so keep threshold in a valid range.
+            decision_threshold = float(np.clip(raw_decision_threshold, 0.0, 0.999999))
             is_fraud = prob >= decision_threshold
             confidence = prob if is_fraud else (1.0 - prob)
 
@@ -500,6 +572,7 @@ class UnifiedFraudDetectionServer:
             result = {
                 'fraud_probability': float(prob),
                 'decision_threshold': float(decision_threshold),
+                'raw_decision_threshold': float(raw_decision_threshold),
                 'base_threshold': float(self.snn_threshold),
                 'global_threshold': float(self.snn_global_threshold),
                 'threshold_scale': float(self.snn_threshold_scale),
@@ -526,7 +599,7 @@ class UnifiedFraudDetectionServer:
 
         except Exception as e:
             self.stats[model_key]['preprocessing_errors'] += 1
-            print(f"⚠️ SNN detection error: {e}")
+            print(f"️ SNN detection error: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -609,7 +682,7 @@ class UnifiedFraudDetectionServer:
             
         except Exception as e:
             self.stats[model_key]['preprocessing_errors'] += 1
-            print(f"⚠️ Autoencoder detection error: {e}")
+            print(f"️ Autoencoder detection error: {e}")
             return None
     
     def detect_fraud_lstm(self, transaction_sequence, client_id, model_key='lstm'):
@@ -716,14 +789,14 @@ class UnifiedFraudDetectionServer:
             
         except Exception as e:
             self.stats[model_key]['preprocessing_errors'] += 1
-            print(f"⚠️ LSTM detection error: {e}")
+            print(f"️ LSTM detection error: {e}")
             import traceback
             traceback.print_exc()
             return None
     
     def load_dataset(self, dataset_path):
         """Load and prepare dataset"""
-        print(f"📂 Loading dataset from: {dataset_path}")
+        print(f" Loading dataset from: {dataset_path}")
         
         df = pd.read_csv(dataset_path)
         df.columns = [col.strip().lower().replace(' ', '_') for col in df.columns]
@@ -783,7 +856,7 @@ class UnifiedFraudDetectionServer:
         
         records = df.to_dict('records')
         
-        print(f"✅ Loaded dataset with {len(records)} records")
+        print(f" Loaded dataset with {len(records)} records")
         
         return records
     
@@ -821,12 +894,7 @@ class UnifiedFraudDetectionServer:
         client_id = id(websocket)
         model_type = self.client_models.get(websocket, 'autoencoder')
         
-        print(f"🚀 Starting {model_type.upper()} stream to client {client_id}")
-        
-        # Initialize client-specific data
-        if model_type == 'lstm':
-            if client_id not in self.client_sequences:
-                self.client_sequences[client_id] = deque(maxlen=self.sequence_length)
+        print(f" Starting {model_type.upper()} stream to client {client_id}")
         
         if websocket not in self.client_totals:
             self.client_totals[websocket] = 0.0
@@ -836,6 +904,12 @@ class UnifiedFraudDetectionServer:
         
         while self.streaming_clients.get(websocket, False):
             try:
+                model_type = self.client_models.get(websocket, 'autoencoder')
+
+                # Initialize LSTM sequence buffer only when needed.
+                if model_type == 'lstm' and client_id not in self.client_sequences:
+                    self.client_sequences[client_id] = deque(maxlen=self.sequence_length)
+
                 # Get and prepare record
                 record = self.dataset[index]
                 prepared_record = self.prepare_record(record, index)
@@ -904,7 +978,7 @@ class UnifiedFraudDetectionServer:
                             self.db.insert_immediate_alert(db_payload)
                             
                     except Exception as e:
-                        print(f"   ⚠️ MongoDB save error: {e}")
+                        print(f"   ️ MongoDB save error: {e}")
                 
                 # Send record to frontend
                 await websocket.send(json.dumps(payload))
@@ -913,7 +987,7 @@ class UnifiedFraudDetectionServer:
                 index += 1
                 
                 if index >= total:
-                    print(f"🔄 End of dataset reached — restarting from beginning ({model_type.upper()})")
+                    print(f" End of dataset reached — restarting from beginning ({model_type.upper()})")
                     self.stats[model_type]['dataset_loops'] += 1
                     index = 0
                 
@@ -921,15 +995,15 @@ class UnifiedFraudDetectionServer:
                 await asyncio.sleep(1.0 / self.stream_speed)
                 
             except websockets.exceptions.ConnectionClosed:
-                print("⚠️ Client disconnected during stream")
+                print("️ Client disconnected during stream")
                 break
             except Exception as e:
-                print(f"❌ Error sending record: {e}")
+                print(f" Error sending record: {e}")
                 import traceback
                 traceback.print_exc()
                 index += 1
         
-        print(f"🛑 {model_type.upper()} stream stopped for client {client_id}")
+        print(f" {model_type.upper()} stream stopped for client {client_id}")
         
         # Clean up
         if client_id in self.client_sequences:
@@ -945,7 +1019,18 @@ class UnifiedFraudDetectionServer:
         # Default to autoencoder model
         self.client_models[websocket] = 'autoencoder'
         
-        print(f"✅ Client connected (ID: {client_id})")
+        print(f" Client connected (ID: {client_id})")
+
+        if self.always_streaming and not self.streaming_clients.get(websocket, False):
+            self.streaming_clients[websocket] = True
+            self.stream_tasks[websocket] = asyncio.create_task(self.stream_to_client(websocket))
+            await websocket.send(json.dumps({
+                "status": "streaming_started",
+                "streaming": True,
+                "stream_speed": self.stream_speed,
+                "model_type": self.client_models.get(websocket, 'autoencoder'),
+                "always_streaming": True
+            }))
         
         try:
             async for message in websocket:
@@ -964,7 +1049,12 @@ class UnifiedFraudDetectionServer:
                         if model_type in ['autoencoder', 'lstm', 'snn']:
                             old_model = self.client_models.get(websocket, 'autoencoder')
                             self.client_models[websocket] = model_type
-                            print(f"🔄 Client {client_id} switched from {old_model} to {model_type}")
+
+                            # Reset LSTM sequence state when switching in/out of LSTM mode.
+                            if old_model == 'lstm' or model_type == 'lstm':
+                                self.client_sequences[client_id] = deque(maxlen=self.sequence_length)
+
+                            print(f" Client {client_id} switched from {old_model} to {model_type}")
                             
                             await websocket.send(json.dumps({
                                 "status": "model_changed",
@@ -993,101 +1083,93 @@ class UnifiedFraudDetectionServer:
                     
                     elif command == "get_stats":
                         model_type = self.client_models.get(websocket, 'autoencoder')
-                        stats = self.stats[model_type]
-                        
-                        elapsed = time.time() - stats['start_time']
-                        throughput = stats['total_processed'] / elapsed if elapsed > 0 else 0
-                        fraud_rate = (stats['fraud_detected'] / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 0
-                        success_rate = ((stats['total_processed'] - stats['preprocessing_errors']) / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 100
-                        
                         await websocket.send(json.dumps({
-                            "stats": {
-                                'total_processed': stats['total_processed'],
-                                'fraud_detected': stats['fraud_detected'],
-                                'preprocessing_errors': stats['preprocessing_errors'],
-                                'dataset_loops': stats['dataset_loops'],
-                                'avg_processing_time': round(stats['avg_processing_time'], 2),
-                                'throughput_tps': round(throughput, 2),
-                                'fraud_rate': round(fraud_rate, 2),
-                                'success_rate': round(success_rate, 2),
-                                'risk_distribution': stats['risk_distribution'],
-                                'prediction_history': stats['prediction_history'][-20:]
-                            },
+                            "stats": self._build_stats_payload(model_type),
                             "active_model": model_type
+                        }))
+
+                    elif command == "reset_stats":
+                        model_type = self.client_models.get(websocket, 'autoencoder')
+                        self._reset_stats_for_model(model_type)
+                        self.client_totals[websocket] = 0.0
+
+                        if model_type == 'lstm':
+                            self.client_sequences[client_id] = deque(maxlen=self.sequence_length)
+
+                        await websocket.send(json.dumps({
+                            "status": "stats_reset",
+                            "active_model": model_type,
+                            "stats": self._build_stats_payload(model_type)
                         }))
                     
                     elif command == "start_stream":
                         if not self.streaming_clients.get(websocket, False):
                             model_type = self.client_models.get(websocket, 'autoencoder')
-                            print(f"▶️ Start {model_type.upper()} stream for client {client_id}")
-                            
+                            print(f"️ Start {model_type.upper()} stream for client {client_id}")
+
                             self.streaming_clients[websocket] = True
                             task = asyncio.create_task(self.stream_to_client(websocket))
                             self.stream_tasks[websocket] = task
-                            
+
                             await websocket.send(json.dumps({
                                 "status": "streaming_started",
                                 "streaming": True,
                                 "stream_speed": self.stream_speed,
-                                "model_type": model_type
+                                "model_type": model_type,
+                                "always_streaming": self.always_streaming
                             }))
                         else:
                             await websocket.send(json.dumps({
                                 "status": "already_streaming",
-                                "streaming": True
+                                "streaming": True,
+                                "always_streaming": self.always_streaming
                             }))
                     
                     elif command == "stop_stream":
-                        print(f"⏹️ Stop stream for client {client_id}")
-                        self.streaming_clients[websocket] = False
-                        task = self.stream_tasks.pop(websocket, None)
-                        if task and not task.done():
-                            try:
-                                task.cancel()
-                            except Exception:
-                                pass
-                        
-                        await websocket.send(json.dumps({
-                            "status": "stopped",
-                            "streaming": False,
-                            "stream_total_amount": self.client_totals.get(websocket, 0.0)
-                        }))
-                        self.client_totals[websocket] = 0.0
+                        if self.always_streaming:
+                            await websocket.send(json.dumps({
+                                "status": "always_on_streaming",
+                                "streaming": True,
+                                "message": "Streaming is always enabled and cannot be stopped from frontend.",
+                                "always_streaming": True
+                            }))
+                        else:
+                            print(f"️ Stop stream for client {client_id}")
+                            self.streaming_clients[websocket] = False
+                            task = self.stream_tasks.pop(websocket, None)
+                            if task and not task.done():
+                                try:
+                                    task.cancel()
+                                except Exception:
+                                    pass
+
+                            await websocket.send(json.dumps({
+                                "status": "stopped",
+                                "streaming": False,
+                                "stream_total_amount": self.client_totals.get(websocket, 0.0)
+                            }))
+                            self.client_totals[websocket] = 0.0
                     
                     elif command == "get_status":
                         model_type = self.client_models.get(websocket, 'autoencoder')
-                        stats = self.stats[model_type]
-                        
-                        elapsed = time.time() - stats['start_time']
-                        throughput = stats['total_processed'] / elapsed if elapsed > 0 else 0
-                        fraud_rate = (stats['fraud_detected'] / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 0
-                        success_rate = ((stats['total_processed'] - stats['preprocessing_errors']) / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 100
-                        
                         await websocket.send(json.dumps({
                             "streaming": self.streaming_clients.get(websocket, False),
                             "total_records": len(self.dataset),
                             "stream_speed": self.stream_speed,
                             "active_clients": len(self.clients),
+                            "always_streaming": self.always_streaming,
+                            "hourly_cleanup_enabled": bool(self.db and self.db.connected),
                             "stream_total_amount": self.client_totals.get(websocket, 0.0),
                             "active_model": model_type,
                             "available_models": ["autoencoder", "lstm", "snn"],
-                            "stats": {
-                                'total_processed': stats['total_processed'],
-                                'fraud_detected': stats['fraud_detected'],
-                                'preprocessing_errors': stats['preprocessing_errors'],
-                                'dataset_loops': stats['dataset_loops'],
-                                'avg_processing_time': round(stats['avg_processing_time'], 2),
-                                'throughput_tps': round(throughput, 2),
-                                'fraud_rate': round(fraud_rate, 2),
-                                'success_rate': round(success_rate, 2)
-                            }
+                            "stats": self._build_stats_payload(model_type)
                         }))
                     
                     elif command == "set_speed":
                         speed = data.get("speed")
                         if isinstance(speed, (int, float)) and speed > 0:
                             self.stream_speed = speed
-                            print(f"⚙️ Stream speed changed to {speed} records/sec")
+                            print(f"️ Stream speed changed to {speed} records/sec")
                             await websocket.send(json.dumps({
                                 "status": "speed_updated",
                                 "speed": self.stream_speed
@@ -1108,9 +1190,9 @@ class UnifiedFraudDetectionServer:
                     }))
                     
         except websockets.exceptions.ConnectionClosed:
-            print(f"❌ Client {client_id} disconnected")
+            print(f" Client {client_id} disconnected")
         finally:
-            print(f"🧹 Cleaning up client {client_id}")
+            print(f" Cleaning up client {client_id}")
             self.clients.discard(websocket)
             self.streaming_clients.pop(websocket, None)
             self.client_totals.pop(websocket, None)
@@ -1123,6 +1205,36 @@ class UnifiedFraudDetectionServer:
                     task.cancel()
                 except Exception:
                     pass
+
+    async def run_hourly_cleanup(self):
+        """Create hourly reports and remove detailed stream/prediction documents.
+        Runs once per hour aligned to the clock hour boundary.
+        """
+        print(" Hourly MongoDB cleanup task started (interval: 1 hour)")
+
+        while True:
+            try:
+                # Sleep until the next top-of-hour boundary first
+                now = datetime.utcnow()
+                next_hour = (now + timedelta(hours=1)).replace(minute=0, second=5, microsecond=0)
+                wait_seconds = max(0.0, (next_hour - now).total_seconds())
+                await asyncio.sleep(wait_seconds)
+
+                if self.db and self.db.connected:
+                    cleanup_result = self.db.summarize_and_cleanup_previous_hour()
+                    if cleanup_result.get('processed'):
+                        print(
+                            f" Hourly report saved for {cleanup_result.get('hour_start')} "
+                            f"and raw docs cleaned: {cleanup_result.get('deleted', {})}"
+                        )
+                    else:
+                        reason = cleanup_result.get('reason', 'unknown')
+                        print(f" Hourly cleanup skipped: {reason}")
+            except asyncio.CancelledError:
+                print(" Hourly cleanup task cancelled")
+                raise
+            except Exception as e:
+                print(f"️ Hourly cleanup task error: {e}")
 
 
 async def main():
@@ -1138,14 +1250,14 @@ async def main():
     SEQUENCE_LENGTH = 10
     
     print("="*80)
-    print("🚀 UNIFIED FRAUD DETECTION WEBSOCKET SERVER")
+    print("[>>] UNIFIED FRAUD DETECTION WEBSOCKET SERVER")
     print("="*80)
-    print(f"📂 Dataset: {DATASET_PATH}")
-    print(f"🌐 Host: {HOST}")
-    print(f"🔌 Port: {PORT}")
-    print(f"⚡ Stream Speed: {STREAM_SPEED} records/sec")
-    print(f"🔢 LSTM Sequence Length: {SEQUENCE_LENGTH}")
-    print(f"🤖 Models: Autoencoder + LSTM + SNN (switchable)")
+    print(f"[DIR] Dataset: {DATASET_PATH}")
+    print(f"[NET] Host: {HOST}")
+    print(f"[PORT] Port: {PORT}")
+    print(f"[SPD] Stream Speed: {STREAM_SPEED} records/sec")
+    print(f"[SEQ] LSTM Sequence Length: {SEQUENCE_LENGTH}")
+    print(f"[AI]  Models: Autoencoder + LSTM + SNN (switchable)")
     print("="*80)
     
     # Create server instance
@@ -1154,9 +1266,12 @@ async def main():
         stream_speed=STREAM_SPEED,
         sequence_length=SEQUENCE_LENGTH
     )
+
+    # Start background hourly summarize/cleanup task.
+    server.hourly_cleanup_task = asyncio.create_task(server.run_hourly_cleanup())
     
     # Start WebSocket server
-    print(f"\n✅ Server starting on ws://{HOST}:{PORT}")
+    print(f"\n[OK] Server starting on ws://{HOST}:{PORT}")
     print("   Waiting for connections...\n")
     
     async with websockets.serve(server.handler, HOST, PORT, ping_interval=30, ping_timeout=10):
@@ -1167,8 +1282,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Server shutting down...")
+        print("\n[--] Server shutting down...")
     except Exception as e:
-        print(f"\n❌ Server error: {e}")
+        print(f"\n[ERR] Server error: {e}")
         import traceback
         traceback.print_exc()

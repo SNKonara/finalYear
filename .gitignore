@@ -6,11 +6,21 @@ results/**
 !results/.gitkeep
 saved_models/**
 snn_models/**
+tmp/
+temp/
+cache/
+**/__pycache__/
+**/.pytest_cache/
 
 # Model/training outputs under project folders
 NeuroDetect/backend/server/snn_models/**
 NeuroDetect/backend/snn_models/**
 NeuroDetect/backend/snn_models/**/*.zip
+NeuroDetect/dist/
+NeuroDetect/node_modules/
+NeuroDetect/**/tmp/
+NeuroDetect/**/temp/
+NeuroDetect/**/cache/
 
 # Common ML binaries
 *.pth

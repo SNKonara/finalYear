@@ -69,7 +69,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, change, icon, tre
 };
 
 const App: React.FC = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>([
+  const [transactions] = useState<Transaction[]>([
     {
       timestamp: "2024-07-02 10:30:15",
       userId: "user_A123",
@@ -139,7 +139,7 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSeverity, setSelectedSeverity] = useState<string>("All Severities");
   const [activeTab, setActiveTab] = useState<'overview'|'stream'|'analytics'>('overview');
-  const [wsConnected, setWsConnected] = useState(false);
+  const [, setWsConnected] = useState(false);
   const [detectorStatus, setDetectorStatus] = useState<string>('stopped');
   const [selectedModel, setSelectedModel] = useState<'autoencoder'|'lstm'|'snn'>('autoencoder');
   const [sidebarOpen, setSidebarOpen] = useState(false);

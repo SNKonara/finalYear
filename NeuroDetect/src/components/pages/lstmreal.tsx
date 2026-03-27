@@ -4,22 +4,16 @@ import {
   Play, 
   Pause, 
   Zap, 
-  Activity, 
   AlertTriangle, 
   CheckCircle, 
-  XCircle,
-  TrendingUp,
   Database,
   RefreshCw,
   Gauge,
-  Users,
-  Clock,
   BarChart3,
   Filter,
   Search,
   Download,
   Settings,
-  Shield,
   Brain,
   Target,
   AlertCircle,
@@ -28,8 +22,6 @@ import {
   Cpu,
   Server,
   Network,
-  ZapOff,
-  ExternalLink,
   BarChart,
   Eye,
   EyeOff,
@@ -39,17 +31,16 @@ import {
   Hash,
   Percent,
   Timer,
-  Database as DbIcon,
   Cloud,
   Cpu as Processor,
   Briefcase
 } from 'lucide-react';
-import './css/lstmreal.css';
+import '../../pages/css/lstmreal.css';
 
-// Global WebSocket reference to persist across component remounts
+// Global WebSocket reference shared across all real-time model pages
 declare global {
   interface Window {
-    lstmDetectionWS?: WebSocket;
+    neuroDetectWS?: WebSocket;
   }
 }
 
@@ -108,9 +99,9 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
   
   // WebSocket state
-  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [alwaysStreaming, setAlwaysStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   
   // Data state
@@ -206,15 +197,15 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         setIsStreaming(false);
         setConnectionStatus('disconnected');
         localStorage.setItem('lstm_detection_streaming', 'false');
-        
-        // Clear global reference
-        if (window.lstmDetectionWS === ws) {
-          window.lstmDetectionWS = undefined;
+
+        // Clear shared global reference
+        if (window.neuroDetectWS === ws) {
+          window.neuroDetectWS = undefined;
         }
-        
+
         // Attempt to reconnect after 3 seconds
         setTimeout(() => {
-          if (!window.lstmDetectionWS || window.lstmDetectionWS.readyState === WebSocket.CLOSED) {
+          if (!window.neuroDetectWS || window.neuroDetectWS.readyState === WebSocket.CLOSED) {
             connectWebSocket();
           }
         }, 3000);
@@ -226,33 +217,35 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     };
 
     const connectWebSocket = () => {
-      // Check if there's already an active WebSocket connection
-      if (window.lstmDetectionWS && window.lstmDetectionWS.readyState === WebSocket.OPEN) {
-        console.log('Reusing existing WebSocket connection');
-        wsRef.current = window.lstmDetectionWS;
-        setSocket(window.lstmDetectionWS);
+      // Reuse shared WebSocket if already open (seamless model switching)
+      if (window.neuroDetectWS && window.neuroDetectWS.readyState === WebSocket.OPEN) {
+        console.log('Reusing shared WebSocket — switching to LSTM model');
+        wsRef.current = window.neuroDetectWS;
         setIsConnected(true);
         setConnectionStatus('connected');
-        
-        // Re-attach event handlers for this component instance
-        setupWebSocketHandlers(window.lstmDetectionWS);
+
+        // Re-attach event handlers and switch model
+        setupWebSocketHandlers(window.neuroDetectWS);
+        window.neuroDetectWS.send(JSON.stringify({ command: 'set_model', model: 'lstm' }));
+        window.neuroDetectWS.send(JSON.stringify({ command: 'get_model_info' }));
+        window.neuroDetectWS.send(JSON.stringify({ command: 'get_status' }));
         return;
       }
 
-      // Close any existing but non-functional WebSocket
-      if (window.lstmDetectionWS) {
+      // Close any existing non-functional WebSocket
+      if (window.neuroDetectWS) {
         try {
-          window.lstmDetectionWS.close();
+          window.neuroDetectWS.close();
         } catch (e) {
           // Ignore errors
         }
       }
 
       setConnectionStatus('connecting');
-      
+
       const ws = new WebSocket('ws://localhost:8765');  // Unified server port
       wsRef.current = ws;
-      window.lstmDetectionWS = ws; // Store globally
+      window.neuroDetectWS = ws; // Shared global reference
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
@@ -267,26 +260,20 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         
         // Request status
         sendCommand('get_status');
+
+        // Always start streaming immediately (24/7 mode)
+        sendCommand('start_stream');
       };
 
       // Set up event handlers
       setupWebSocketHandlers(ws);
-
-      setSocket(ws);
     };
 
     connectWebSocket();
 
     return () => {
-      // Only close WebSocket if not streaming (check localStorage for current state)
-      const currentStreamingState = localStorage.getItem('lstm_detection_streaming');
-      if (window.lstmDetectionWS && currentStreamingState !== 'true') {
-        console.log('Closing WebSocket - streaming is not active');
-        window.lstmDetectionWS.close();
-        window.lstmDetectionWS = undefined;
-      } else {
-        console.log('Keeping WebSocket alive - streaming is active');
-      }
+      // Keep shared WebSocket alive — 24/7 streaming; next page will reuse it
+      console.log('LSTM page unmounting — keeping shared WebSocket alive');
     };
   }, []);
 
@@ -332,16 +319,23 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     }
 
     // Status messages
-    if (typeof data.streaming === 'boolean' || data.status || data.speed) {
+    if (typeof data.streaming === 'boolean' || data.status || data.speed || data.always_streaming !== undefined) {
       if (typeof data.streaming === 'boolean') {
         setIsStreaming(data.streaming);
         localStorage.setItem('lstm_detection_streaming', data.streaming.toString());
       }
-      if (data.status === 'stopped') {
-        setIsStreaming(false);
-        localStorage.setItem('lstm_detection_streaming', 'false');
+      if (data.always_streaming) {
+        setAlwaysStreaming(true);
+        setIsStreaming(true);
+        localStorage.setItem('lstm_detection_streaming', 'true');
       }
-      if (data.status === 'already_streaming') {
+      if (data.status === 'stopped') {
+        if (!alwaysStreaming) {
+          setIsStreaming(false);
+          localStorage.setItem('lstm_detection_streaming', 'false');
+        }
+      }
+      if (data.status === 'already_streaming' || data.status === 'always_on_streaming') {
         setIsStreaming(true);
         localStorage.setItem('lstm_detection_streaming', 'true');
       }
@@ -437,7 +431,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   // WebSocket commands
   const sendCommand = useCallback((command: string, data?: any) => {
     // Use wsRef.current or fall back to global reference
-    const ws = wsRef.current || window.lstmDetectionWS;
+    const ws = wsRef.current || window.neuroDetectWS;
     
     if (!ws) {
       console.warn('WebSocket not initialized');
@@ -714,23 +708,36 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
                 <span>View</span>
               </button>
               
-              <button
-                className={`control-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
-                onClick={startStreaming}
-                disabled={!isConnected || isStreaming}
-              >
-                <Play className="btn-icon" />
-                <span>Start</span>
-              </button>
-              
-              <button
-                className={`control-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
-                onClick={stopStreaming}
-                disabled={!isConnected || !isStreaming}
-              >
-                <Pause className="btn-icon" />
-                <span>Stop</span>
-              </button>
+              {alwaysStreaming ? (
+                <div
+                  className="control-btn"
+                  style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)', cursor: 'default' }}
+                  title="Always-on streaming active — 24/7"
+                >
+                  <Zap className="btn-icon" />
+                  <span>Live 24/7</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className={`control-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
+                    onClick={startStreaming}
+                    disabled={!isConnected || isStreaming}
+                  >
+                    <Play className="btn-icon" />
+                    <span>Start</span>
+                  </button>
+
+                  <button
+                    className={`control-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
+                    onClick={stopStreaming}
+                    disabled={!isConnected || !isStreaming}
+                  >
+                    <Pause className="btn-icon" />
+                    <span>Stop</span>
+                  </button>
+                </>
+              )}
               
               <button
                 className="control-btn reset-btn"

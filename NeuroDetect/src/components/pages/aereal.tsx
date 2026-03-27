@@ -4,22 +4,16 @@ import {
   Play, 
   Pause, 
   Zap, 
-  Activity, 
   AlertTriangle, 
   CheckCircle, 
-  XCircle,
-  TrendingUp,
   Database,
   RefreshCw,
   Gauge,
-  Users,
-  Clock,
   BarChart3,
   Filter,
   Search,
   Download,
   Settings,
-  Shield,
   Brain,
   Target,
   AlertCircle,
@@ -28,8 +22,6 @@ import {
   Cpu,
   Server,
   Network,
-  ZapOff,
-  ExternalLink,
   BarChart,
   Eye,
   EyeOff,
@@ -39,34 +31,29 @@ import {
   Hash,
   Percent,
   Timer,
-  Database as DbIcon,
   Cloud,
   Cpu as Processor,
   Briefcase
 } from 'lucide-react';
-import './css/lstmreal.css';
+import '../../pages/css/aereal.css';
 
-// Global WebSocket reference to persist across component remounts
+// Global WebSocket reference shared across all real-time model pages
 declare global {
   interface Window {
-    snnDetectionWS?: WebSocket;
+    neuroDetectWS?: WebSocket;
   }
 }
 
-interface SNNFraudDetectionRecord {
+interface FraudDetectionRecord {
   transaction_id: string;
   transaction_data: any;
-  fraud_score: number;
-  optimal_threshold: number;
-  fraud_probability?: number;
-  decision_threshold?: number | null;
+  reconstruction_error: number;
+  threshold: number;
   is_fraud: boolean;
-  confidence: number;
-  risk_level: 'Low' | 'Medium-Low' | 'Medium-High' | 'High';
+  fraud_probability: number;
+  risk_level: 'Low' | 'Medium' | 'High';
   processing_time_ms: number;
   timestamp: string;
-  time_steps?: number;
-  model_type?: string;
   [key: string]: any;
 }
 
@@ -81,12 +68,11 @@ interface ModelStats {
   success_rate: number;
   risk_distribution?: {
     Low: number;
-    'Medium-Low': number;
-    'Medium-High': number;
+    Medium: number;
     High: number;
   };
   prediction_history?: Array<{
-    score: number;
+    error: number;
     is_fraud: boolean;
     risk: string;
     timestamp: string;
@@ -97,37 +83,30 @@ interface ModelInfo {
   input_dim: number;
   architecture: string;
   threshold: number;
-  threshold_scale?: number;
-  global_threshold?: number;
-  unknown_customer_policy?: string;
-  time_steps?: number;
   device: string;
   expected_features: number;
   feature_names: string[];
   num_features?: number;
-  hidden_size?: number;
-  num_layers?: number;
-  output_size?: number;
-  performance?: {
-    accuracy?: number;
-    precision?: number;
-    recall?: number;
-    f1?: number;
-    auc?: number;
-  };
+  top_categories?: string[];
+  category_columns?: string[];
 }
 
-const SNNFraudDetectionDashboard: React.FC = () => {
+const FraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  const toNumber = (value: unknown, fallback = 0): number => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
   
   // WebSocket state
-  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [alwaysStreaming, setAlwaysStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   
   // Data state
-  const [records, setRecords] = useState<SNNFraudDetectionRecord[]>([]);
+  const [records, setRecords] = useState<FraudDetectionRecord[]>([]);
   const [modelStats, setModelStats] = useState<ModelStats>({
     total_processed: 0,
     fraud_detected: 0,
@@ -137,25 +116,20 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     throughput_tps: 0,
     fraud_rate: 0,
     success_rate: 0,
-    risk_distribution: { Low: 0, 'Medium-Low': 0, 'Medium-High': 0, High: 0 },
+    risk_distribution: { Low: 0, Medium: 0, High: 0 },
     prediction_history: []
   });
   
   const [modelInfo, setModelInfo] = useState<ModelInfo>({
     input_dim: 0,
-    architecture: 'Enhanced SNN',
-    threshold: 0.5,
-    threshold_scale: 1.0,
-    global_threshold: 0.5,
-    unknown_customer_policy: 'global',
-    time_steps: 20,
+    architecture: '128-64-16',
+    threshold: 0,
     device: 'cpu',
     expected_features: 0,
     feature_names: [],
     num_features: 0,
-    hidden_size: 64,
-    num_layers: 2,
-    output_size: 2
+    top_categories: [],
+    category_columns: []
   });
 
   // UI state
@@ -164,71 +138,19 @@ const SNNFraudDetectionDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState('all');
   const [showFraudOnly, setShowFraudOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState('snn');
-  const [activationHistory, setActivationHistory] = useState<number[]>([]);
-  const [showActivationChart, setShowActivationChart] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [errorHistory, setErrorHistory] = useState<number[]>([]);
+  const [showReconstructionChart, setShowReconstructionChart] = useState(true);
 
   // Refs
-  const recordsRef = useRef<SNNFraudDetectionRecord[]>([]);
+  const recordsRef = useRef<FraudDetectionRecord[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
-
-  const getHiddenSizeFromArchitecture = (architecture: string) => {
-    const match = architecture.match(/SNN-FC\d+-(\d+)-/);
-    if (!match) return 64;
-    const parsed = Number.parseInt(match[1], 10);
-    return Number.isNaN(parsed) ? 64 : parsed;
-  };
-
-  const normalizeFraudFlag = (rawFraudFlag: unknown, score?: number, threshold?: number): boolean => {
-    if (typeof rawFraudFlag === 'boolean') return rawFraudFlag;
-    if (typeof rawFraudFlag === 'number') return rawFraudFlag > 0;
-
-    if (typeof rawFraudFlag === 'string') {
-      const normalized = rawFraudFlag.trim().toLowerCase();
-
-      if (
-        normalized === 'true' ||
-        normalized === '1' ||
-        normalized === 'yes' ||
-        normalized === 'y' ||
-        normalized === 'fraud' ||
-        normalized === 'anomaly' ||
-        normalized === 'anomalous' ||
-        normalized === 'high' ||
-        normalized === 'high-risk' ||
-        normalized === 'high_risk'
-      ) {
-        return true;
-      }
-
-      if (
-        normalized === 'false' ||
-        normalized === '0' ||
-        normalized === 'no' ||
-        normalized === 'n' ||
-        normalized === 'normal' ||
-        normalized === 'legit' ||
-        normalized === 'legitimate' ||
-        normalized === 'low' ||
-        normalized === 'low-risk' ||
-        normalized === 'low_risk'
-      ) {
-        return false;
-      }
-    }
-
-    if (typeof score === 'number' && typeof threshold === 'number') {
-      return score >= threshold;
-    }
-
-    return false;
-  };
 
   // Sync streaming state across pages using localStorage
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'snn_detection_streaming') {
+      if (e.key === 'fraud_detection_streaming') {
         const newState = e.newValue === 'true';
         setIsStreaming(newState);
         
@@ -246,7 +168,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     window.addEventListener('storage', handleStorageChange);
     
     // Check initial state from localStorage
-    const savedState = localStorage.getItem('snn_detection_streaming');
+    const savedState = localStorage.getItem('fraud_detection_streaming');
     if (savedState !== null) {
       const streamingState = savedState === 'true';
       setIsStreaming(streamingState);
@@ -274,16 +196,16 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         setIsConnected(false);
         setIsStreaming(false);
         setConnectionStatus('disconnected');
-        localStorage.setItem('snn_detection_streaming', 'false');
-        
-        // Clear global reference
-        if (window.snnDetectionWS === ws) {
-          window.snnDetectionWS = undefined;
+        localStorage.setItem('fraud_detection_streaming', 'false');
+
+        // Clear shared global reference
+        if (window.neuroDetectWS === ws) {
+          window.neuroDetectWS = undefined;
         }
-        
+
         // Attempt to reconnect after 3 seconds
         setTimeout(() => {
-          if (!window.snnDetectionWS || window.snnDetectionWS.readyState === WebSocket.CLOSED) {
+          if (!window.neuroDetectWS || window.neuroDetectWS.readyState === WebSocket.CLOSED) {
             connectWebSocket();
           }
         }, 3000);
@@ -295,67 +217,63 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     };
 
     const connectWebSocket = () => {
-      // Check if there's already an active WebSocket connection
-      if (window.snnDetectionWS && window.snnDetectionWS.readyState === WebSocket.OPEN) {
-        console.log('Reusing existing WebSocket connection');
-        wsRef.current = window.snnDetectionWS;
-        setSocket(window.snnDetectionWS);
+      // Reuse shared WebSocket if already open (seamless model switching)
+      if (window.neuroDetectWS && window.neuroDetectWS.readyState === WebSocket.OPEN) {
+        console.log('Reusing shared WebSocket — switching to Autoencoder model');
+        wsRef.current = window.neuroDetectWS;
         setIsConnected(true);
         setConnectionStatus('connected');
-        
-        // Re-attach event handlers for this component instance
-        setupWebSocketHandlers(window.snnDetectionWS);
+
+        // Re-attach event handlers and switch model
+        setupWebSocketHandlers(window.neuroDetectWS);
+        window.neuroDetectWS.send(JSON.stringify({ command: 'set_model', model: 'autoencoder' }));
+        window.neuroDetectWS.send(JSON.stringify({ command: 'get_model_info' }));
+        window.neuroDetectWS.send(JSON.stringify({ command: 'get_status' }));
         return;
       }
 
-      // Close any existing but non-functional WebSocket
-      if (window.snnDetectionWS) {
+      // Close any existing non-functional WebSocket
+      if (window.neuroDetectWS) {
         try {
-          window.snnDetectionWS.close();
+          window.neuroDetectWS.close();
         } catch (e) {
           // Ignore errors
         }
       }
 
       setConnectionStatus('connecting');
-      
-      const ws = new WebSocket('ws://localhost:8765');  // Unified server port
+
+      const ws = new WebSocket('ws://localhost:8765');
       wsRef.current = ws;
-      window.snnDetectionWS = ws; // Store globally
+      window.neuroDetectWS = ws; // Shared global reference
 
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
         setIsConnected(true);
         setConnectionStatus('connected');
         
-        // Select SNN model on unified server
-        ws.send(JSON.stringify({ command: 'set_model', model: 'snn' }));
+        // Select Autoencoder model on unified server
+        ws.send(JSON.stringify({ command: 'set_model', model: 'autoencoder' }));
         
         // Request model info
         sendCommand('get_model_info');
         
         // Request status
         sendCommand('get_status');
+
+        // Always start streaming immediately (24/7 mode)
+        sendCommand('start_stream');
       };
 
       // Set up event handlers
       setupWebSocketHandlers(ws);
-
-      setSocket(ws);
     };
 
     connectWebSocket();
 
     return () => {
-      // Only close WebSocket if not streaming (check localStorage for current state)
-      const currentStreamingState = localStorage.getItem('snn_detection_streaming');
-      if (window.snnDetectionWS && currentStreamingState !== 'true') {
-        console.log('Closing WebSocket - streaming is not active');
-        window.snnDetectionWS.close();
-        window.snnDetectionWS = undefined;
-      } else {
-        console.log('Keeping WebSocket alive - streaming is active');
-      }
+      // Keep shared WebSocket alive — 24/7 streaming; next page will reuse it
+      console.log('Autoencoder page unmounting — keeping shared WebSocket alive');
     };
   }, []);
 
@@ -385,41 +303,42 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
     // Model info response
     if (data.model_info) {
-      const architecture = data.model_info.architecture || 'Enhanced SNN';
-      const inferredHiddenSize = getHiddenSizeFromArchitecture(architecture);
       setModelInfo({
-        input_dim: data.model_info.input_dim || 0,
-        architecture,
-        threshold: data.model_info.threshold || data.model_info.optimal_threshold || 0.5,
-        threshold_scale: data.model_info.threshold_scale || 1.0,
-        global_threshold: data.model_info.global_threshold || data.model_info.threshold || 0.5,
-        unknown_customer_policy: data.model_info.unknown_customer_policy || 'global',
-        time_steps: data.model_info.time_steps || 20,
+        input_dim: toNumber(data.model_info.input_dim, 0),
+        architecture: data.model_info.architecture || '128-64-16',
+        threshold: toNumber(data.model_info.threshold, 0),
         device: data.model_info.device || 'cpu',
-        expected_features: data.model_info.expected_features || 0,
+        expected_features: toNumber(data.model_info.expected_features, 0),
         feature_names: data.model_info.feature_names || [],
-        num_features: data.model_info.num_features || data.model_info.input_dim || 0,
-        hidden_size: data.model_info.hidden_size || inferredHiddenSize,
-        num_layers: data.model_info.num_layers || 2,
-        output_size: data.model_info.output_size || 2,
-        performance: data.model_info.performance || undefined
+        num_features: toNumber(data.model_info.num_features ?? data.model_info.input_dim, 0),
+        top_categories: data.model_info.top_categories || [],
+        category_columns: data.model_info.category_columns || []
       });
       return;
     }
 
     // Status messages
-    if (typeof data.streaming === 'boolean' || data.status || data.speed) {
+    if (typeof data.streaming === 'boolean' || data.status || data.speed || data.always_streaming !== undefined) {
       if (typeof data.streaming === 'boolean') {
         setIsStreaming(data.streaming);
-        localStorage.setItem('snn_detection_streaming', data.streaming.toString());
+        localStorage.setItem('fraud_detection_streaming', data.streaming.toString());
+      }
+      if (data.always_streaming) {
+        setAlwaysStreaming(true);
+        setIsStreaming(true);
+        localStorage.setItem('fraud_detection_streaming', 'true');
       }
       if (data.status === 'stopped') {
-        setIsStreaming(false);
-        localStorage.setItem('snn_detection_streaming', 'false');
+        // In always-streaming mode the backend won't actually stop;
+        // keep UI state in sync in case of non-always mode
+        if (!alwaysStreaming) {
+          setIsStreaming(false);
+          localStorage.setItem('fraud_detection_streaming', 'false');
+        }
       }
-      if (data.status === 'already_streaming') {
+      if (data.status === 'already_streaming' || data.status === 'always_on_streaming') {
         setIsStreaming(true);
-        localStorage.setItem('snn_detection_streaming', 'true');
+        localStorage.setItem('fraud_detection_streaming', 'true');
       }
       if (data.speed) {
         setStreamSpeed(data.speed);
@@ -431,7 +350,22 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     if (data.stats) {
       setModelStats(prev => ({
         ...prev,
-        ...data.stats
+        total_processed: toNumber(data.stats.total_processed, prev.total_processed),
+        fraud_detected: toNumber(data.stats.fraud_detected, prev.fraud_detected),
+        preprocessing_errors: toNumber(data.stats.preprocessing_errors, prev.preprocessing_errors),
+        dataset_loops: toNumber(data.stats.dataset_loops, prev.dataset_loops),
+        avg_processing_time: toNumber(data.stats.avg_processing_time, prev.avg_processing_time),
+        throughput_tps: toNumber(data.stats.throughput_tps, prev.throughput_tps),
+        fraud_rate: toNumber(data.stats.fraud_rate, prev.fraud_rate),
+        success_rate: toNumber(data.stats.success_rate, prev.success_rate),
+        risk_distribution: data.stats.risk_distribution
+          ? {
+              Low: toNumber(data.stats.risk_distribution.Low, 0),
+              Medium: toNumber(data.stats.risk_distribution.Medium, 0),
+              High: toNumber(data.stats.risk_distribution.High, 0)
+            }
+          : prev.risk_distribution,
+        prediction_history: data.stats.prediction_history ?? prev.prediction_history
       }));
       return;
     }
@@ -442,56 +376,31 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       return;
     }
 
-    // Check if this is a real detection result
-    if (
-      data.fraud_score !== undefined ||
-      data.fraud_probability !== undefined ||
-      data.is_fraud !== undefined ||
-      data.decision_threshold !== undefined
-    ) {
-      const score =
-        data.fraud_score ??
-        data.fraud_probability ??
-        data.score ??
-        0;
-      const threshold =
-        data.decision_threshold ??
-        data.optimal_threshold ??
-        modelInfo.threshold;
-      const rawFraudFlag =
-        data.is_fraud ??
-        data.fraud_prediction ??
-        data.prediction;
-      const isFraud = normalizeFraudFlag(rawFraudFlag, score, threshold);
-
+    // Check if this is a fraud detection result (has reconstruction_error or is_fraud field)
+    if (data.reconstruction_error !== undefined || data.is_fraud !== undefined || data.transaction_id) {
       // Log every 10th record to avoid console spam
       if (recordsRef.current.length % 10 === 0) {
-        console.log('📊 SNN fraud detection result:', {
+        console.log('📊 Fraud detection result:', {
           id: data.transaction_id,
-          is_fraud: isFraud,
-          score,
-          threshold,
+          is_fraud: data.is_fraud,
+          error: data.reconstruction_error,
           risk: data.risk_level,
           total_records: recordsRef.current.length
         });
       }
 
-      // This is an SNN fraud detection result
-      const newRecord: SNNFraudDetectionRecord = {
-        ...data,
+      // This is a fraud detection result
+      const newRecord: FraudDetectionRecord = {
         transaction_id: data.transaction_id || `TXN_${Date.now()}`,
         transaction_data: data.transaction_data || data,
-        fraud_score: score,
-        optimal_threshold: threshold,
-        fraud_probability: data.fraud_probability,
-        decision_threshold: data.decision_threshold,
-        is_fraud: isFraud,
-        confidence: data.confidence || 0,
+        reconstruction_error: toNumber(data.reconstruction_error, 0),
+        threshold: toNumber(data.threshold, modelInfo.threshold),
+        is_fraud: data.is_fraud === true || data.is_fraud === 1,
+        fraud_probability: toNumber(data.fraud_probability, 0),
         risk_level: data.risk_level || 'Low',
-        processing_time_ms: data.processing_time_ms || 0,
+        processing_time_ms: toNumber(data.processing_time_ms, 0),
         timestamp: data.timestamp || data.stream_timestamp || new Date().toISOString(),
-        time_steps: data.time_steps || modelInfo.time_steps,
-        model_type: data.model_type || 'SNN'
+        ...data
       };
 
       // Update records
@@ -500,18 +409,18 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       setRecords(updatedRecords);
       
       // Publish data to localStorage for streaming page
-      localStorage.setItem('snn_detection_data', JSON.stringify(updatedRecords));
+      localStorage.setItem('fraud_detection_data', JSON.stringify(updatedRecords));
 
-      // Update score history
-      setActivationHistory(prev => [...prev.slice(-49), newRecord.fraud_score]);
+      // Update error history
+      setErrorHistory(prev => [...prev.slice(-49), newRecord.reconstruction_error]);
 
       // Update statistics
       updateStats(newRecord);
     }
-  }, [maxRecords, modelInfo.threshold, modelInfo.time_steps]);
+  }, [maxRecords, modelInfo.threshold]);
 
   // Update statistics
-  const updateStats = useCallback((record: SNNFraudDetectionRecord) => {
+  const updateStats = useCallback((record: FraudDetectionRecord) => {
     setModelStats(prev => {
       const newTotal = prev.total_processed + 1;
       const newFraudCount = prev.fraud_detected + (record.is_fraud ? 1 : 0);
@@ -535,8 +444,8 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
   // WebSocket commands
   const sendCommand = useCallback((command: string, data?: any) => {
-    // Use wsRef.current or fall back to global reference
-    const ws = wsRef.current || window.snnDetectionWS;
+    // Use wsRef.current or fall back to shared global reference
+    const ws = wsRef.current || window.neuroDetectWS;
     
     if (!ws) {
       console.warn('WebSocket not initialized');
@@ -553,13 +462,13 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
   const startStreaming = () => {
     setIsStreaming(true);
-    localStorage.setItem('snn_detection_streaming', 'true');
+    localStorage.setItem('fraud_detection_streaming', 'true');
     sendCommand('start_stream');
   };
 
   const stopStreaming = () => {
     setIsStreaming(false);
-    localStorage.setItem('snn_detection_streaming', 'false');
+    localStorage.setItem('fraud_detection_streaming', 'false');
     sendCommand('stop_stream');
   };
 
@@ -570,7 +479,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
   const resetStats = () => {
     setRecords([]);
-    setActivationHistory([]);
+    setErrorHistory([]);
     setModelStats({
       total_processed: 0,
       fraud_detected: 0,
@@ -580,12 +489,12 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       throughput_tps: 0,
       fraud_rate: 0,
       success_rate: 0,
-      risk_distribution: { Low: 0, 'Medium-Low': 0, 'Medium-High': 0, High: 0 },
+      risk_distribution: { Low: 0, Medium: 0, High: 0 },
       prediction_history: []
     });
     
     // Clear data in localStorage for streaming page
-    localStorage.setItem('snn_detection_data', JSON.stringify([]));
+    localStorage.setItem('fraud_detection_data', JSON.stringify([]));
   };
 
   // Filter records
@@ -605,46 +514,25 @@ const SNNFraudDetectionDashboard: React.FC = () => {
   // Get risk distribution - use server data if available, otherwise calculate from local records
   const riskDistribution = modelStats.risk_distribution && 
     (modelStats.risk_distribution.Low > 0 || 
-     modelStats.risk_distribution['Medium-Low'] > 0 || 
-     modelStats.risk_distribution['Medium-High'] > 0 || 
+     modelStats.risk_distribution.Medium > 0 || 
      modelStats.risk_distribution.High > 0)
     ? modelStats.risk_distribution
     : {
         Low: records.filter(r => r.risk_level === 'Low').length,
-        'Medium-Low': records.filter(r => r.risk_level === 'Medium-Low').length,
-        'Medium-High': records.filter(r => r.risk_level === 'Medium-High').length,
+        Medium: records.filter(r => r.risk_level === 'Medium').length,
         High: records.filter(r => r.risk_level === 'High').length
       };
 
-  const localFraudDetected = records.reduce((count, record) => {
-    const fraudFlag = normalizeFraudFlag(
-      record.is_fraud,
-      record.fraud_score,
-      record.decision_threshold ?? record.optimal_threshold ?? modelInfo.threshold
-    );
-    return count + (fraudFlag ? 1 : 0);
-  }, 0);
-
-  const liveWindowTotal = records.length;
-  const liveWindowFraudDetected = localFraudDetected;
-  const liveWindowFraudRate =
-    liveWindowTotal > 0 ? (liveWindowFraudDetected / liveWindowTotal) * 100 : 0;
-
-  const resolvedTotalProcessed = Math.max(modelStats.total_processed, records.length);
-  const resolvedFraudDetected = Math.max(modelStats.fraud_detected, localFraudDetected);
-  const resolvedFraudRate =
-    resolvedTotalProcessed > 0 ? (resolvedFraudDetected / resolvedTotalProcessed) * 100 : 0;
-
-  // Format fraud score
-  const formatScore = (score: number) => {
-    return score.toFixed(4);
+  // Format reconstruction error
+  const formatError = (error: number) => {
+    return error.toExponential(3);
   };
 
-  // Get activation severity color
-  const getActivationColor = (activationRatio: number) => {
-    const ratio = activationRatio;
-    if (ratio < 0.5) return 'low';
-    if (ratio < 1.0) return 'medium';
+  // Get error severity color
+  const getErrorColor = (error: number, threshold: number) => {
+    const ratio = error / threshold;
+    if (ratio < 0.3) return 'low';
+    if (ratio < 0.7) return 'medium';
     return 'high';
   };
 
@@ -652,16 +540,15 @@ const SNNFraudDetectionDashboard: React.FC = () => {
   const getRiskColor = (riskLevel: string) => {
     switch(riskLevel) {
       case 'Low': return 'var(--success)';
-      case 'Medium-Low': return 'var(--info)';
-      case 'Medium-High': return 'var(--warning)';
+      case 'Medium': return 'var(--warning)';
       case 'High': return 'var(--danger)';
       default: return 'var(--text-muted)';
     }
   };
 
-  // Draw SNN spike activation plot
+  // Draw reconstruction error chart
   useEffect(() => {
-    if (!chartRef.current || activationHistory.length === 0) return;
+    if (!chartRef.current || errorHistory.length === 0) return;
 
     const canvas = chartRef.current;
     const ctx = canvas.getContext('2d');
@@ -679,31 +566,27 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
-    const activationRatios = activationHistory.map(score =>
-      modelInfo.threshold > 0 ? score / modelInfo.threshold : 0
-    );
-    const maxActivation = Math.max(...activationRatios, 1.5);
 
-    // Draw decision boundary line (1.0x activation)
+    // Draw threshold line
     ctx.beginPath();
-    const decisionY = height - padding - (1 / maxActivation) * chartHeight;
-    ctx.moveTo(padding, decisionY);
-    ctx.lineTo(width - padding, decisionY);
+    const thresholdY = height - padding - (modelInfo.threshold / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+    ctx.moveTo(padding, thresholdY);
+    ctx.lineTo(width - padding, thresholdY);
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Draw decision boundary label
+    // Draw threshold label
     ctx.fillStyle = 'rgba(239, 68, 68, 0.8)';
     ctx.font = '12px monospace';
-    ctx.fillText('Decision Line: 1.00x', width - padding - 150, decisionY - 10);
+    ctx.fillText(`Threshold: ${modelInfo.threshold.toExponential(3)}`, width - padding - 120, thresholdY - 10);
 
-    // Draw activation line
-    if (activationRatios.length > 1) {
+    // Draw error line
+    if (errorHistory.length > 1) {
       ctx.beginPath();
-      activationRatios.forEach((activationRatio, index) => {
-        const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
-        const y = height - padding - (activationRatio / maxActivation) * chartHeight;
+      errorHistory.forEach((error, index) => {
+        const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
+        const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
         
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -718,19 +601,19 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     }
 
     // Draw points
-    activationRatios.forEach((activationRatio, index) => {
-      const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
-      const y = height - padding - (activationRatio / maxActivation) * chartHeight;
+    errorHistory.forEach((error, index) => {
+      const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
+      const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = getActivationColor(activationRatio) === 'high' ? 
-        'var(--danger)' : getActivationColor(activationRatio) === 'medium' ? 
+      ctx.fillStyle = getErrorColor(error, modelInfo.threshold) === 'high' ? 
+        'var(--danger)' : getErrorColor(error, modelInfo.threshold) === 'medium' ? 
         'var(--warning)' : 'var(--success)';
       ctx.fill();
     });
 
-  }, [activationHistory, modelInfo.threshold]);
+  }, [errorHistory, modelInfo.threshold]);
 
   return (
     <div className="fraud-dashboard">
@@ -742,15 +625,15 @@ const SNNFraudDetectionDashboard: React.FC = () => {
             <span className="logo-text">NeuroDetect</span>
           </div>
           <div className="model-badge">
-            <div className="model-type">SNN</div>
+            <div className="model-type">Autoencoder</div>
             <div className={`connection-dot ${connectionStatus}`}></div>
           </div>
         </div>
 
         <nav className="sidebar-nav">
           <button 
-            className="nav-item"
-            onClick={() => navigate('/')}
+            className="nav-item active"
+            onClick={() => setActiveTab('overview')}
           >
             <BarChart3 className="nav-icon" />
             <span>Autoencoder</span>
@@ -763,8 +646,8 @@ const SNNFraudDetectionDashboard: React.FC = () => {
             <span>LSTM</span>
           </button>
           <button 
-            className={`nav-item active`}
-            onClick={() => setActiveTab('snn')}
+            className="nav-item"
+            onClick={() => navigate('/snnreal')}
           >
             <Zap className="nav-icon" />
             <span>SNN</span>
@@ -804,7 +687,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
             <Thermometer className="threshold-icon" />
             <div>
               <div className="threshold-value">
-                {modelInfo.threshold.toFixed(4)}
+                {modelInfo.threshold.toExponential(3)}
               </div>
               <div className="threshold-label">Detection Threshold</div>
             </div>
@@ -817,14 +700,14 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         {/* Top Bar */}
         <header className="fraud-topbar">
           <div className="topbar-left">
-            <h1>SNN Fraud Detection</h1>
-            <p className="subtitle">Real-time spiking neural network fraud detection</p>
+            <h1>Autoencoder Fraud Detection</h1>
+            <p className="subtitle">Real-time anomaly detection using neural networks</p>
           </div>
           
           <div className="topbar-right">
             <div className="model-arch">
               <Percent className="arch-icon" />
-              <span>Accuracy: {(100 - resolvedFraudRate).toFixed(1)}%</span>
+              <span>Accuracy: {(100 - modelStats.fraud_rate).toFixed(1)}%</span>
             </div>
             
             <div className="control-group">
@@ -836,23 +719,36 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                 <span>View</span>
               </button>
               
-              <button
-                className={`control-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
-                onClick={startStreaming}
-                disabled={!isConnected || isStreaming}
-              >
-                <Play className="btn-icon" />
-                <span>Start</span>
-              </button>
-              
-              <button
-                className={`control-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
-                onClick={stopStreaming}
-                disabled={!isConnected || !isStreaming}
-              >
-                <Pause className="btn-icon" />
-                <span>Stop</span>
-              </button>
+              {alwaysStreaming ? (
+                <div
+                  className="control-btn"
+                  style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)', cursor: 'default' }}
+                  title="Always-on streaming active — 24/7"
+                >
+                  <Zap className="btn-icon" />
+                  <span>Live 24/7</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className={`control-btn start-btn ${!isConnected || isStreaming ? 'disabled' : ''}`}
+                    onClick={startStreaming}
+                    disabled={!isConnected || isStreaming}
+                  >
+                    <Play className="btn-icon" />
+                    <span>Start</span>
+                  </button>
+
+                  <button
+                    className={`control-btn stop-btn ${!isConnected || !isStreaming ? 'disabled' : ''}`}
+                    onClick={stopStreaming}
+                    disabled={!isConnected || !isStreaming}
+                  >
+                    <Pause className="btn-icon" />
+                    <span>Stop</span>
+                  </button>
+                </>
+              )}
               
               <button
                 className="control-btn reset-btn"
@@ -869,30 +765,28 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         <div className="performance-grid">
           <div className="performance-card large">
             <div className="card-header">
-              <h3>Spike Activation Plot</h3>
+              <h3>Reconstruction Error Chart</h3>
               <button 
                 className="chart-toggle"
-                onClick={() => setShowActivationChart(!showActivationChart)}
+                onClick={() => setShowReconstructionChart(!showReconstructionChart)}
               >
-                {showActivationChart ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showReconstructionChart ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            <div className={`chart-container ${showActivationChart ? 'visible' : 'hidden'}`}>
+            <div className={`chart-container ${showReconstructionChart ? 'visible' : 'hidden'}`}>
               <canvas ref={chartRef} className="error-chart"></canvas>
             </div>
             <div className="chart-footer">
               <div className="chart-stats">
                 <div className="chart-stat">
-                  <span className="stat-label">Current Activation:</span>
+                  <span className="stat-label">Current Error:</span>
                   <span className="stat-value">
-                    {records[0]?.fraud_score !== undefined && modelInfo.threshold > 0
-                      ? `${(records[0].fraud_score / modelInfo.threshold).toFixed(2)}x`
-                      : 'N/A'}
+                    {records[0]?.reconstruction_error ? formatError(records[0].reconstruction_error) : 'N/A'}
                   </span>
                 </div>
                 <div className="chart-stat">
-                  <span className="stat-label">Decision Line:</span>
-                  <span className="stat-value">1.00x</span>
+                  <span className="stat-label">Threshold:</span>
+                  <span className="stat-value">{modelInfo.threshold.toExponential(3)}</span>
                 </div>
               </div>
             </div>
@@ -904,17 +798,17 @@ const SNNFraudDetectionDashboard: React.FC = () => {
               <Target className="card-icon" />
             </div>
             <div className="detection-rate">
-              <div className="rate-value">{liveWindowFraudRate.toFixed(2)}%</div>
+              <div className="rate-value">{modelStats.fraud_rate.toFixed(2)}%</div>
               <div className="rate-label">Fraud Detection Rate</div>
               <div className="rate-bar">
                 <div 
                   className="rate-fill"
-                  style={{ width: `${Math.min(liveWindowFraudRate, 100)}%` }}
+                  style={{ width: `${Math.min(modelStats.fraud_rate, 100)}%` }}
                 ></div>
               </div>
               <div className="rate-stats">
-                <span>Detected: {liveWindowFraudDetected}</span>
-                <span>Total: {liveWindowTotal}</span>
+                <span>Detected: {modelStats.fraud_detected}</span>
+                <span>Total: {modelStats.total_processed}</span>
               </div>
             </div>
           </div>
@@ -1015,11 +909,11 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <Layers className="layer-icon" />
                       <div>
-                        <div className="layer-name">FC + LIF Layer 1</div>
-                        <div className="layer-dims">Spiking Integration</div>
+                        <div className="layer-name">Encoder (128)</div>
+                        <div className="layer-dims">Compression Layer</div>
                       </div>
                     </div>
-                    <div className="layer-nodes">{modelInfo.hidden_size}</div>
+                    <div className="layer-nodes">128</div>
                   </div>
                   
                   <div className="layer-arrow">→</div>
@@ -1028,11 +922,11 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <Layers className="layer-icon" />
                       <div>
-                        <div className="layer-name">FC + LIF Layer 2</div>
-                        <div className="layer-dims">Temporal Spike Flow</div>
+                        <div className="layer-name">Encoder (64)</div>
+                        <div className="layer-dims">Feature Extraction</div>
                       </div>
                     </div>
-                    <div className="layer-nodes">{modelInfo.hidden_size}</div>
+                    <div className="layer-nodes">64</div>
                   </div>
                   
                   <div className="layer-arrow">→</div>
@@ -1041,46 +935,22 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                     <div className="layer-info">
                       <GitBranch className="layer-icon" />
                       <div>
-                        <div className="layer-name">Output Layer</div>
-                        <div className="layer-dims">2-Class Spiking Logits</div>
+                        <div className="layer-name">Latent Space</div>
+                        <div className="layer-dims">Bottleneck</div>
                       </div>
                     </div>
-                    <div className="layer-nodes">{modelInfo.output_size || 2}</div>
+                    <div className="layer-nodes">16</div>
                   </div>
                 </div>
                 
                 <div className="model-info">
                   <div className="info-item">
-                    <span className="info-label">Architecture:</span>
-                    <span className="info-value">{modelInfo.architecture}</span>
-                  </div>
-                  <div className="info-item">
                     <span className="info-label">Threshold:</span>
-                    <span className="info-value">{modelInfo.threshold.toFixed(6)}</span>
+                    <span className="info-value">{modelInfo.threshold.toExponential(6)}</span>
                   </div>
                   <div className="info-item">
-                    <span className="info-label">Time Steps:</span>
-                    <span className="info-value">{modelInfo.time_steps}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Hidden Size:</span>
-                    <span className="info-value">{modelInfo.hidden_size}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">SNN Layers:</span>
-                    <span className="info-value">{modelInfo.num_layers}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Threshold Scale:</span>
-                    <span className="info-value">{(modelInfo.threshold_scale || 1).toFixed(2)}x</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Global Threshold:</span>
-                    <span className="info-value">{(modelInfo.global_threshold || modelInfo.threshold).toFixed(6)}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Unknown Policy:</span>
-                    <span className="info-value">{modelInfo.unknown_customer_policy || 'global'}</span>
+                    <span className="info-label">Expected Features:</span>
+                    <span className="info-value">{modelInfo.expected_features}</span>
                   </div>
                   <div className="info-item">
                     <span className="info-label">Device:</span>
@@ -1090,14 +960,6 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                     <span className="info-label">Total Features:</span>
                     <span className="info-value">{modelInfo.num_features || modelInfo.expected_features}</span>
                   </div>
-                  <div className="info-item">
-                    <span className="info-label">F1 Score:</span>
-                    <span className="info-value">{modelInfo.performance?.f1 ? modelInfo.performance.f1.toFixed(4) : 'N/A'}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">AUC:</span>
-                    <span className="info-value">{modelInfo.performance?.auc ? modelInfo.performance.auc.toFixed(4) : 'N/A'}</span>
-                  </div>
                   <div className="info-item" style={{ gridColumn: '1 / -1' }}>
                     <span className="info-label">Feature Names:</span>
                     <span className="info-value" title={modelInfo.feature_names?.join(', ')}>
@@ -1105,6 +967,12 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                       {modelInfo.feature_names?.length > 5 && ` ... +${modelInfo.feature_names.length - 5} more`}
                     </span>
                   </div>
+                  {modelInfo.top_categories && modelInfo.top_categories.length > 0 && (
+                    <div className="info-item" style={{ gridColumn: '1 / -1' }}>
+                      <span className="info-label">Categories:</span>
+                      <span className="info-value">{modelInfo.top_categories.join(', ')}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1139,8 +1007,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                   >
                     <option value="all">All Risks</option>
                     <option value="Low">Low Risk</option>
-                    <option value="Medium-Low">Medium-Low</option>
-                    <option value="Medium-High">Medium-High</option>
+                    <option value="Medium">Medium Risk</option>
                     <option value="High">High Risk</option>
                   </select>
 
@@ -1165,17 +1032,17 @@ const SNNFraudDetectionDashboard: React.FC = () => {
               <div className="detections-table">
                 <div className="table-header">
                   <div className="table-col">Transaction ID</div>
-                  <div className="table-col">Fraud Probability</div>
+                  <div className="table-col">Encoder Output</div>
                   <div className="table-col">Risk Level</div>
                   <div className="table-col">Fraud Status</div>
-                  <div className="table-col">Confidence</div>
+                  <div className="table-col">Probability</div>
                 </div>
                 
                 <div className="table-body">
                   {filteredRecords.slice(0, 20).map((record, index) => (
                     <div 
                       key={`${record.transaction_id}-${index}`}
-                      className={`table-row ${record.risk_level.toLowerCase().replace('-', '')}`}
+                      className={`table-row ${record.risk_level.toLowerCase()}`}
                     >
                       <div className="table-col">
                         <div className="transaction-id">{record.transaction_id}</div>
@@ -1185,17 +1052,17 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                       </div>
                       <div className="table-col">
                         <div className="error-display">
-                          <div className="error-value" title={`Fraud Probability: ${record.fraud_score}`}>
-                            {formatScore(record.fraud_score)}
+                          <div className="error-value" title={`Reconstruction Error: ${record.reconstruction_error}`}>
+                            {formatError(record.reconstruction_error)}
                           </div>
                           <div className="error-threshold" style={{ fontSize: '0.7em', opacity: 0.6 }}>
-                            vs {formatScore(record.optimal_threshold)}
+                            vs {formatError(record.threshold)}
                           </div>
                           <div className="error-bar">
                             <div 
                               className="error-fill"
                               style={{ 
-                                width: `${Math.min((record.fraud_score / Math.max(record.optimal_threshold, 1e-6)) * 100, 100)}%`,
+                                width: `${Math.min((record.reconstruction_error / record.threshold) * 100, 100)}%`,
                                 backgroundColor: getRiskColor(record.risk_level)
                               }}
                             ></div>
@@ -1229,13 +1096,13 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                       <div className="table-col">
                         <div className="fraud-probability">
                           <div className="probability-value">
-                            {(record.confidence * 100).toFixed(1)}%
+                            {(record.fraud_probability * 100).toFixed(1)}%
                           </div>
                           <div className="probability-bar">
                             <div 
                               className="probability-fill"
                               style={{ 
-                                width: `${Math.min(record.confidence * 100, 100)}%`,
+                                width: `${Math.min(record.fraud_probability * 100, 100)}%`,
                                 backgroundColor: getRiskColor(record.risk_level)
                               }}
                             ></div>
@@ -1381,18 +1248,10 @@ const SNNFraudDetectionDashboard: React.FC = () => {
                 </div>
                 
                 <div className="alert-item medium">
-                  <div className="alert-count">{riskDistribution['Medium-High']}</div>
+                  <div className="alert-count">{riskDistribution.Medium}</div>
                   <div className="alert-info">
-                    <div className="alert-title">Medium-High Risk Alerts</div>
+                    <div className="alert-title">Medium Risk Alerts</div>
                     <div className="alert-desc">Review recommended</div>
-                  </div>
-                </div>
-                
-                <div className="alert-item medium">
-                  <div className="alert-count">{riskDistribution['Medium-Low']}</div>
-                  <div className="alert-info">
-                    <div className="alert-title">Medium-Low Risk Alerts</div>
-                    <div className="alert-desc">Monitor closely</div>
                   </div>
                 </div>
                 
@@ -1423,12 +1282,12 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         <footer className="fraud-footer">
           <div className="footer-info">
             <div className="info-item">
-              <span className="info-label">SNN Model:</span>
+              <span className="info-label">Autoencoder Model:</span>
               <span className="info-value">{modelInfo.architecture} Architecture</span>
             </div>
             <div className="info-item">
               <span className="info-label">Connected to:</span>
-              <span className="info-value">ws://localhost:8765 (SNN)</span>
+              <span className="info-value">ws://localhost:8765 (Autoencoder)</span>
             </div>
             <div className="info-item">
               <span className="info-label">Status:</span>
@@ -1438,7 +1297,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
             </div>
           </div>
           <div className="footer-meta">
-            <span>SNN Fraud Detection System v2.0 • Real-time Sequence-Based Detection</span>
+            <span>Autoencoder Fraud Detection System v2.0 • Real-time Anomaly Detection</span>
           </div>
         </footer>
       </main>
@@ -1446,4 +1305,4 @@ const SNNFraudDetectionDashboard: React.FC = () => {
   );
 };
 
-export default SNNFraudDetectionDashboard;
+export default FraudDetectionDashboard;

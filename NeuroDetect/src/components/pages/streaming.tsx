@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Play, 
-  Pause, 
-  Zap, 
   Activity, 
   AlertTriangle, 
   CheckCircle, 
-  XCircle,
+  Zap,
   TrendingUp,
   Database,
   RefreshCw,
@@ -17,22 +14,18 @@ import {
   BarChart3,
   Filter,
   Search,
-  Download,
   Settings,
   Shield,
   ChevronRight,
-  AlertCircle,
   PieChart,
   Cpu,
   Server,
-  Network,
-  ZapOff,
   ExternalLink,
   Menu,
   X,
   ArrowLeft
 } from 'lucide-react';
-import './css/streaming.css';
+import '../../pages/css/streaming.css';
 
 interface StreamingRecord {
   transaction_id: string;
@@ -99,12 +92,10 @@ const Streaming: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showFraudOnly, setShowFraudOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Refs
   const recordsRef = useRef<StreamingRecord[]>([]);
-  const statsRef = useRef<StreamingStats>(stats);
 
   const normalizeRecords = useCallback((input: any[]): StreamingRecord[] => {
     return input.map((row: any, index: number) => {
@@ -136,6 +127,44 @@ const Streaming: React.FC = () => {
       return [] as StreamingRecord[];
     }
   }, [normalizeRecords]);
+
+  // Update statistics from records data
+  const updateStatsFromRecords = useCallback((data: any[]) => {
+    if (!data || data.length === 0) {
+      setStats({
+        totalReceived: 0,
+        fraudCount: 0,
+        normalCount: 0,
+        totalAmount: 0,
+        avgAmount: 0,
+        categories: new Map(),
+        fraudRate: 0
+      });
+      return;
+    }
+
+    const fraudCount = data.filter(r => r.is_fraud).length;
+    const normalCount = data.length - fraudCount;
+    const totalAmount = data.reduce((sum, r) => sum + (r.transaction_data?.amt || r.amount || 0), 0);
+    const avgAmount = totalAmount / data.length;
+    const fraudRate = (fraudCount / data.length) * 100;
+
+    const categoryMap = new Map<string, number>();
+    data.forEach(r => {
+      const category = r.transaction_data?.category || r.category || 'N/A';
+      categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
+    });
+
+    setStats({
+      totalReceived: data.length,
+      fraudCount,
+      normalCount,
+      totalAmount,
+      avgAmount,
+      categories: categoryMap,
+      fraudRate
+    });
+  }, []);
 
   const applyModelData = useCallback((model: RealtimeModel, data: StreamingRecord[]) => {
     setActiveModel(model);
@@ -210,7 +239,6 @@ const Streaming: React.FC = () => {
       }
     }
 
-    // Poll for data updates (fallback for same-window updates)
     const pollInterval = setInterval(() => {
       const streamingModel = resolveActiveStreamingModel() || activeModel;
       const data = readModelData(streamingModel);
@@ -224,54 +252,6 @@ const Streaming: React.FC = () => {
       clearInterval(pollInterval);
     };
   }, [activeModel, applyModelData, normalizeRecords, readModelData]);
-
-  // Update statistics from records data
-  const updateStatsFromRecords = useCallback((data: any[]) => {
-    if (!data || data.length === 0) {
-      setStats({
-        totalReceived: 0,
-        fraudCount: 0,
-        normalCount: 0,
-        totalAmount: 0,
-        avgAmount: 0,
-        categories: new Map(),
-        fraudRate: 0
-      });
-      return;
-    }
-
-    const fraudCount = data.filter(r => r.is_fraud).length;
-    const normalCount = data.length - fraudCount;
-    const totalAmount = data.reduce((sum, r) => sum + (r.transaction_data?.amt || r.amount || 0), 0);
-    const avgAmount = totalAmount / data.length;
-    const fraudRate = (fraudCount / data.length) * 100;
-
-    const categoryMap = new Map<string, number>();
-    data.forEach(r => {
-      const category = r.transaction_data?.category || r.category || 'N/A';
-      categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
-    });
-
-    setStats({
-      totalReceived: data.length,
-      fraudCount,
-      normalCount,
-      totalAmount,
-      avgAmount,
-      categories: categoryMap,
-      fraudRate
-    });
-    
-    statsRef.current = {
-      totalReceived: data.length,
-      fraudCount,
-      normalCount,
-      totalAmount,
-      avgAmount,
-      categories: categoryMap,
-      fraudRate
-    };
-  }, []);
 
   const updateStreamSpeed = (speed: number) => {
     setStreamSpeed(speed);

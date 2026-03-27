@@ -1,64 +1,41 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Upload,
   FileText,
-  Download,
-  Settings,
   Shield,
   Brain,
   Activity,
   AlertTriangle,
   CheckCircle,
-  XCircle,
   TrendingUp,
   Database,
   RefreshCw,
-  Gauge,
-  Users,
-  Clock,
   BarChart3,
-  Filter,
   Search,
   Download as DownloadIcon,
-  Settings as SettingsIcon,
-  AlertCircle,
-  LineChart,
-  PieChart,
   Cpu,
   Server,
   Zap,
-  Play,
-  Pause,
   Target,
   Sliders,
   Thermometer,
   GitBranch,
   Layers,
-  Hash,
   Percent,
-  Timer,
-  Box,
-  Boxes,
-  Calendar,
   ChevronRight,
   Sparkles,
-  Workflow,
   GanttChart,
   UploadCloud,
   FileUp,
-  FileDown,
   Trash2,
-  Eye,
   EyeOff,
   Maximize2,
   Minimize2,
-  Copy,
   Check,
-  Info,
-  HelpCircle
+  Info
 } from 'lucide-react';
-import './css/batch_upload.css';
+import '../../pages/css/batch_upload.css';
 
 interface ModelOption {
   id: 'autoencoder' | 'lstm' | 'snn';
@@ -100,8 +77,12 @@ interface ModelInfo {
 
 const BatchProcessing: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Pre-select the model if realtime models page passed one via navigation state
+  const stateModel = (location.state as { model?: ModelOption['id'] } | null)?.model;
   // Model selection
-  const [selectedModel, setSelectedModel] = useState<ModelOption['id']>('autoencoder');
+  const [selectedModel, setSelectedModel] = useState<ModelOption['id']>(stateModel ?? 'autoencoder');
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
@@ -122,7 +103,6 @@ const BatchProcessing: React.FC = () => {
   // Threshold tuning
   const [threshold, setThreshold] = useState<number>(0.5);
   const [customThreshold, setCustomThreshold] = useState<boolean>(false);
-  const [thresholdTuningResults, setThresholdTuningResults] = useState<any>(null);
 
   // UI state
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'tuning'>('upload');
@@ -521,24 +501,10 @@ const BatchProcessing: React.FC = () => {
         <nav className="sidebar-nav">
           <button 
             className="nav-item"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/', { state: { model: selectedModel } })}
           >
             <Brain className="nav-icon" />
-            <span>Autoencoder</span>
-          </button>
-          <button 
-            className="nav-item"
-            onClick={() => navigate('/lstmreal')}
-          >
-            <Target className="nav-icon" />
-            <span>LSTM</span>
-          </button>
-          <button 
-            className="nav-item"
-            onClick={() => navigate('/snnreal')}
-          >
-            <Zap className="nav-icon" />
-            <span>SNN</span>
+            <span>Realtime Models</span>
           </button>
           <button 
             className={`nav-item ${activeTab === 'upload' ? 'active' : ''}`}
@@ -602,6 +568,23 @@ const BatchProcessing: React.FC = () => {
             </div>
           </div>
         </header>
+
+        {isLoadingModel && (
+          <div className="processing-note" style={{ marginBottom: '12px' }}>
+            <Info size={14} />
+            <span>Loading saved model metadata...</span>
+          </div>
+        )}
+
+        {modelLoadError && (
+          <div className="error-message" style={{ marginBottom: '12px' }}>
+            <AlertTriangle size={16} />
+            <span>{modelLoadError}</span>
+            <button onClick={() => setModelLoadError(null)} className="error-close">
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Model Info Banner */}
         {modelInfo && (
@@ -1048,6 +1031,16 @@ const BatchProcessing: React.FC = () => {
                   Adjust the detection threshold to balance between precision and recall
                 </p>
               </div>
+
+              <label className="checkbox-label" style={{ marginBottom: '16px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  className="checkbox-input"
+                  checked={customThreshold}
+                  onChange={(event) => setCustomThreshold(event.target.checked)}
+                />
+                <span className="checkbox-text">Use custom threshold for the next batch run</span>
+              </label>
 
               <div className="tuning-controls">
                 <div className="threshold-control">

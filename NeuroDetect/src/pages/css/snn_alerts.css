@@ -1,0 +1,423 @@
+.snn-alerts-page {
+  font-family: 'Inter', 'Segoe UI', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: 0.1px;
+}
+
+.snn-alerts-page .fraud-topbar h1 {
+  font-size: clamp(1.6rem, 1.4rem + 0.9vw, 2.1rem);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.snn-alerts-page .subtitle {
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.realtime-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.realtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.realtime-dot.live {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+
+.realtime-dot.syncing {
+  background: var(--warning);
+  animation: realtimePulse 1.1s infinite;
+}
+
+@keyframes realtimePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.15); }
+}
+
+.snn-alerts-page .card-header h2,
+.snn-alerts-page .card-header h3 {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.snn-alerts-page .control-btn,
+.snn-alerts-page .action-btn {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.snn-alerts-page .alert-count {
+  font-size: clamp(1.8rem, 1.5rem + 0.9vw, 2.3rem);
+  font-weight: 800;
+}
+
+.snn-alerts-page .alert-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.snn-alerts-page .alert-desc {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.snn-alerts-page .table-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.65px;
+}
+
+.snn-alerts-page .table-row {
+  min-height: 72px;
+}
+
+.snn-alerts-page .transaction-id {
+  font-size: 0.81rem;
+  font-weight: 700;
+}
+
+.snn-alerts-page .transaction-category {
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.snn-alerts-page .probability-value,
+.snn-alerts-page .stat-value {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.snn-alerts-page .stat-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.snn-alerts-page .risk-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.snn-alerts-page .reason-label,
+.snn-alerts-page .mini-label,
+.snn-alerts-page .metric-chip,
+.snn-alerts-page .empty-state {
+  font-size: 0.8rem;
+}
+
+.snn-alerts-page .reason-count,
+.snn-alerts-page .mini-value {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.snn-alerts-page .explain-section h4 {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.snn-alerts-page .reason-list {
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.snn-alerts-page .metric-chip {
+  font-weight: 600;
+}
+
+.empty-state {
+  padding: 16px;
+  border: 1px dashed var(--border-light);
+  border-radius: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-state.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.reasons-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reasons-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.reasons-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.reasons-scroll::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.reasons-scroll::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.45);
+  border-radius: 6px;
+}
+
+.reasons-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.7);
+}
+
+.reason-row {
+  display: grid;
+  grid-template-columns: 2fr 3fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.reason-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.reason-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.reason-fill {
+  height: 100%;
+  background: var(--gradient-danger);
+}
+
+.reason-count {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.investigation-grid {
+  grid-template-columns: 2fr 2fr 1fr 1fr 1fr;
+}
+
+.selected-row {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.explain-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.explain-section h4 {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reason-list {
+  padding-left: 18px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mini-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mini-chart-row {
+  display: grid;
+  grid-template-columns: 1.3fr 2fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.mini-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mini-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mini-fill {
+  height: 100%;
+  background: var(--gradient-primary);
+}
+
+.mini-fill.secondary {
+  background: var(--gradient-success);
+}
+
+.mini-value {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.threshold-box {
+  border-top: 1px solid var(--border-light);
+}
+
+.threshold-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.metric-chip {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.raster-axis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 4px 0 10px 120px;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+
+.raster-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.raster-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.raster-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.raster-track {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.raster-cell {
+  height: 10px;
+  border-radius: 2px;
+  background: rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.raster-cell.active {
+  background: linear-gradient(135deg, var(--danger), var(--pink));
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.22);
+}
+
+.raster-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.legend-dot.quiet {
+  background: rgba(148, 163, 184, 0.35);
+}
+
+.legend-dot.active {
+  background: linear-gradient(135deg, var(--danger), var(--pink));
+}
+
+@media (max-width: 1200px) {
+  .snn-alerts-page .fraud-topbar h1 {
+    font-size: 1.5rem;
+  }
+
+  .snn-alerts-page .card-header h2,
+  .snn-alerts-page .card-header h3 {
+    font-size: 0.96rem;
+  }
+
+  .snn-alerts-page .control-btn,
+  .snn-alerts-page .action-btn {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .snn-alerts-page .table-header {
+    font-size: 0.68rem;
+  }
+
+  .snn-alerts-page .transaction-id {
+    font-size: 0.76rem;
+  }
+
+  .snn-alerts-page .transaction-category,
+  .snn-alerts-page .stat-label,
+  .snn-alerts-page .reason-label,
+  .snn-alerts-page .mini-label,
+  .snn-alerts-page .metric-chip {
+    font-size: 0.74rem;
+  }
+
+  .raster-axis {
+    margin-left: 0;
+  }
+
+  .raster-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .raster-track {
+    gap: 3px;
+  }
+}
