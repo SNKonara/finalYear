@@ -7,9 +7,9 @@ import {
   Download,
   RefreshCw,
   Shield,
-  TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
 import '../../pages/css/lstmreal.css';
 import '../../pages/css/snn_alerts.css';
 
@@ -81,6 +81,7 @@ const API_BASE = 'http://localhost:8000';
 
 const SNNAlertsInvestigation: React.FC = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [searchParams] = useSearchParams();
   const batchId = searchParams.get('batch_id') || undefined;
 
@@ -262,18 +263,45 @@ const SNNAlertsInvestigation: React.FC = () => {
         </div>
 
         <nav className="sidebar-nav">
-          <button className="nav-item" onClick={() => navigate('/')}>
-            <BarChart3 className="nav-icon" />
-            <span>Autoencoder</span>
-          </button>
           <button className="nav-item" onClick={() => navigate('/snnreal')}>
-            <TrendingUp className="nav-icon" />
-            <span>SNN Real-Time</span>
+            <BarChart3 className="nav-icon" />
+            <span>Dashboard</span>
           </button>
-          <button className="nav-item active">
-            <AlertCircle className="nav-icon" />
-            <span>SNN Alerts</span>
-          </button>
+          {currentUser?.role === 'admin' ? (
+            <>
+              <button className="nav-item" onClick={() => navigate('/user-management')}>
+                <Shield className="nav-icon" />
+                <span>User</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/reports')}>
+                <Download className="nav-icon" />
+                <span>Report</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/system')}>
+                <RefreshCw className="nav-icon" />
+                <span>System</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="nav-item active">
+                <AlertCircle className="nav-icon" />
+                <span>Investigation</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/system')}>
+                <RefreshCw className="nav-icon" />
+                <span>System</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/batch-upload')}>
+                <TriangleAlert className="nav-icon" />
+                <span>Batch Upload</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/reports')}>
+                <Download className="nav-icon" />
+                <span>Reports</span>
+              </button>
+            </>
+          )}
         </nav>
       </aside>
 

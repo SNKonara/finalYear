@@ -91,6 +91,16 @@ interface ModelInfo {
   category_columns?: string[];
 }
 
+interface AutoencoderDashboardSnapshot {
+  records: FraudDetectionRecord[];
+  errorHistory: number[];
+  modelStats: ModelStats;
+  modelInfo: ModelInfo;
+  streamSpeed: number;
+}
+
+const AUTOENCODER_SNAPSHOT_KEY = 'fraud_detection_snapshot_autoencoder';
+
 const FraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
 
@@ -146,6 +156,64 @@ const FraudDetectionDashboard: React.FC = () => {
   const recordsRef = useRef<FraudDetectionRecord[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
+
+  // Hydrate recent dashboard state so chart/table appear immediately on navigation back.
+  useEffect(() => {
+    const snapshotRaw = localStorage.getItem(AUTOENCODER_SNAPSHOT_KEY);
+    if (!snapshotRaw) {
+      return;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotRaw) as Partial<AutoencoderDashboardSnapshot>;
+      const cachedRecords = Array.isArray(snapshot.records) ? snapshot.records.slice(0, maxRecords) : [];
+      const cachedErrorHistory = Array.isArray(snapshot.errorHistory)
+        ? snapshot.errorHistory.map((value) => toNumber(value, 0)).slice(-50)
+        : [];
+
+      if (cachedRecords.length > 0) {
+        recordsRef.current = cachedRecords;
+        setRecords(cachedRecords);
+      }
+
+      if (cachedErrorHistory.length > 0) {
+        setErrorHistory(cachedErrorHistory);
+      }
+
+      if (snapshot.modelStats) {
+        setModelStats((previous) => ({ ...previous, ...snapshot.modelStats }));
+      }
+
+      if (snapshot.modelInfo) {
+        setModelInfo((previous) => ({ ...previous, ...snapshot.modelInfo }));
+      }
+
+      if (typeof snapshot.streamSpeed === 'number' && Number.isFinite(snapshot.streamSpeed)) {
+        setStreamSpeed(snapshot.streamSpeed);
+      }
+    } catch (error) {
+      console.warn('Failed to restore autoencoder snapshot:', error);
+    }
+  }, [maxRecords]);
+
+  // Persist a lightweight snapshot to reduce remount lag and avoid heavy write bursts.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmedRecords = records.slice(0, 120);
+      const snapshot: AutoencoderDashboardSnapshot = {
+        records: trimmedRecords,
+        errorHistory: errorHistory.slice(-50),
+        modelStats,
+        modelInfo,
+        streamSpeed,
+      };
+
+      localStorage.setItem(AUTOENCODER_SNAPSHOT_KEY, JSON.stringify(snapshot));
+      localStorage.setItem('fraud_detection_data', JSON.stringify(trimmedRecords));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [records, errorHistory, modelStats, modelInfo, streamSpeed]);
 
   // Sync streaming state across pages using localStorage
   useEffect(() => {
@@ -407,9 +475,6 @@ const FraudDetectionDashboard: React.FC = () => {
       const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      
-      // Publish data to localStorage for streaming page
-      localStorage.setItem('fraud_detection_data', JSON.stringify(updatedRecords));
 
       // Update error history
       setErrorHistory(prev => [...prev.slice(-49), newRecord.reconstruction_error]);
@@ -492,8 +557,8 @@ const FraudDetectionDashboard: React.FC = () => {
       risk_distribution: { Low: 0, Medium: 0, High: 0 },
       prediction_history: []
     });
-    
-    // Clear data in localStorage for streaming page
+
+    localStorage.removeItem(AUTOENCODER_SNAPSHOT_KEY);
     localStorage.setItem('fraud_detection_data', JSON.stringify([]));
   };
 
@@ -548,28 +613,37 @@ const FraudDetectionDashboard: React.FC = () => {
 
   // Draw reconstruction error chart
   useEffect(() => {
-    if (!chartRef.current || errorHistory.length === 0) return;
+    if (!showReconstructionChart || !chartRef.current || errorHistory.length === 0) return;
 
-    const canvas = chartRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const drawChart = () => {
+      const canvas = chartRef.current;
+      if (!canvas) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Set canvas dimensions
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      if (width === 0 || height === 0) {
+        return;
+      }
 
-    const width = canvas.width;
-    const height = canvas.height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
+    const maxValue = Math.max(...errorHistory, modelInfo.threshold, 0.000001);
+    const pointsDenominator = Math.max(errorHistory.length - 1, 1);
 
     // Draw threshold line
     ctx.beginPath();
-    const thresholdY = height - padding - (modelInfo.threshold / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+    const thresholdY = height - padding - (modelInfo.threshold / maxValue) * chartHeight;
     ctx.moveTo(padding, thresholdY);
     ctx.lineTo(width - padding, thresholdY);
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
@@ -585,8 +659,8 @@ const FraudDetectionDashboard: React.FC = () => {
     if (errorHistory.length > 1) {
       ctx.beginPath();
       errorHistory.forEach((error, index) => {
-        const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
-        const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+        const x = padding + (index / pointsDenominator) * chartWidth;
+        const y = height - padding - (error / maxValue) * chartHeight;
         
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -602,8 +676,8 @@ const FraudDetectionDashboard: React.FC = () => {
 
     // Draw points
     errorHistory.forEach((error, index) => {
-      const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
-      const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+      const x = padding + (index / pointsDenominator) * chartWidth;
+      const y = height - padding - (error / maxValue) * chartHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -612,8 +686,11 @@ const FraudDetectionDashboard: React.FC = () => {
         'var(--warning)' : 'var(--success)';
       ctx.fill();
     });
+    };
 
-  }, [errorHistory, modelInfo.threshold]);
+    const frameId = window.requestAnimationFrame(drawChart);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [errorHistory, modelInfo.threshold, showReconstructionChart]);
 
   return (
     <div className="fraud-dashboard">
@@ -667,8 +744,8 @@ const FraudDetectionDashboard: React.FC = () => {
             <span>Model</span>
           </button>
           <button 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
+            className="nav-item"
+            onClick={() => navigate('/investigations')}
           >
             <LineChart className="nav-icon" />
             <span>Analytics</span>

@@ -3,8 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle,
   Edit2,
-  FileText,
-  LayoutDashboard,
   ListOrdered,
   LogOut,
   Plus,
@@ -17,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { getRoleSidebarItems } from '../layout/roleNavigation';
 import { useTheme } from '../theme/ThemeContext';
 import { createUser, deleteUser, getAllUsers, getSessionToken, updateUserRole } from '../../auth/storage';
 import type { ManagedUser, UserRole } from '../../auth/types';
@@ -54,14 +53,6 @@ const roleStyles: Record<UserRole, React.CSSProperties> = {
   viewer: { background: '#eef6ff', color: '#0284c7', border: '1px solid #cfe5ff' },
 };
 
-const navItems = [
-  { label: 'Dashboard', to: '/', icon: LayoutDashboard },
-  { label: 'Transactions', to: '/reports', icon: ListOrdered },
-  { label: 'Alerts & Cases', to: '/reports', icon: ShieldCheck },
-  { label: 'Investigations', to: '/unauthorized', icon: Workflow },
-  { label: 'Reports', to: '/reports', icon: FileText },
-];
-
 const adminTabs = [
   { key: 'users', label: 'Users & Roles', icon: Users },
   { key: 'config', label: 'Model Config', icon: Settings2 },
@@ -86,6 +77,7 @@ const UserManagement: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const { isDarkTheme } = useTheme();
   const navigate = useNavigate();
+  const navItems = getRoleSidebarItems(currentUser?.role ?? 'admin');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,9 +190,9 @@ const UserManagement: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: shellBg, color: shellText }}>
-      <div style={{ maxWidth: 1440, margin: '0 auto', padding: '26px 22px 34px' }}>
+      <div style={{ width: '100%', padding: '26px 24px 34px' }}>
         <div style={{ ...panel, overflow: 'hidden', background: shellPanel, border: `1px solid ${shellBorder}` }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0,1fr)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', minHeight: 'calc(100vh - 110px)' }}>
             <aside style={{ borderRight: `1px solid ${shellBorder}`, background: isDarkTheme ? 'linear-gradient(180deg,#0f172a 0%,#111827 100%)' : 'linear-gradient(180deg,#fcfcff 0%,#f6f7fb 100%)', minHeight: 'calc(100vh - 110px)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '28px 24px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -216,8 +208,7 @@ const UserManagement: React.FC = () => {
 
               <nav style={{ padding: '8px 16px 18px', display: 'grid', gap: 8 }}>
                 {navItems.map((item) => (
-                  <Link key={item.label} to={item.to} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, color: shellMuted, textDecoration: 'none', fontWeight: 600 }}>
-                    <item.icon size={18} />
+                  <Link key={item.label} to={item.to} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 14, color: item.to === '/user-management' ? shellText : shellMuted, background: item.to === '/user-management' ? (isDarkTheme ? '#1f2937' : '#f2f4f8') : 'transparent', textDecoration: 'none', fontWeight: 600 }}>
                     {item.label}
                   </Link>
                 ))}

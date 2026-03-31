@@ -26,23 +26,103 @@ body {
 
 .login-container {
   min-height: 100vh;
-  padding: 28px 16px;
+  padding: 20px 14px;
   display: grid;
   place-items: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(111, 69, 233, 0.18), transparent 38%),
+    radial-gradient(circle at 85% 75%, rgba(53, 184, 176, 0.16), transparent 42%),
+    linear-gradient(145deg, #141420 0%, #10101a 40%, #0b0b13 100%);
+}
+
+.login-backdrop-glow {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  filter: blur(42px);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.login-backdrop-glow-left {
+  top: -60px;
+  left: -90px;
+  background: rgba(111, 69, 233, 0.46);
+}
+
+.login-backdrop-glow-right {
+  bottom: -70px;
+  right: -80px;
+  background: rgba(53, 184, 176, 0.35);
+}
+
+.login-layout {
+  width: 100%;
+  max-width: 1020px;
+  display: grid;
+  grid-template-columns: 1fr minmax(320px, 480px);
+  gap: 28px;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.login-side-panel {
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  backdrop-filter: blur(10px);
+  color: #edf0ff;
+}
+
+.login-side-panel h3 {
+  font-size: 30px;
+  line-height: 1.1;
+  margin-bottom: 10px;
+}
+
+.login-side-panel p {
+  font-size: 15px;
+  color: rgba(235, 238, 255, 0.86);
+  line-height: 1.5;
+}
+
+.side-panel-pill-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.side-panel-pill {
+  border-radius: 999px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(10, 10, 18, 0.34);
+  color: #f5f7ff;
+  font-size: 11px;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .login-card {
   width: 100%;
-  max-width: 520px;
+  max-width: 480px;
   background: var(--card-bg);
-  border-radius: 10px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+  border-radius: 14px;
+  box-shadow: 0 22px 56px rgba(8, 8, 15, 0.42);
   overflow: hidden;
+  border: 1px solid rgba(119, 119, 142, 0.2);
   border-top: 4px solid var(--brand);
 }
 
 .login-header {
-  padding: 42px 36px 14px;
+  padding: 26px 30px 10px;
 }
 
 .brand-row {
@@ -66,34 +146,34 @@ body {
 
 .brand-row h1 {
   color: var(--brand);
-  font-size: 40px;
+  font-size: 30px;
   font-weight: 700;
   line-height: 1;
 }
 
 .welcome-section {
   text-align: center;
-  padding: 0 36px 22px;
+  padding: 0 30px 16px;
 }
 
 .welcome-section h2 {
-  font-size: 44px;
+  font-size: 34px;
   font-weight: 700;
   color: #252531;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .subtitle {
   color: var(--text-secondary);
-  font-size: 28px;
+  font-size: 21px;
   line-height: 1.3;
 }
 
 .login-form {
-  padding: 0 36px 28px;
+  padding: 0 30px 22px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .form-group {
@@ -107,7 +187,7 @@ body {
   letter-spacing: 1.2px;
   font-weight: 700;
   color: #6a6a76;
-  font-size: 19px;
+  font-size: 15px;
 }
 
 .input-container {
@@ -124,13 +204,14 @@ body {
 
 .form-input {
   width: 100%;
-  height: 52px;
+  height: 50px;
   padding: 0 44px;
   border-radius: 10px;
   border: 1px solid #d4d4de;
   background: var(--input-bg);
   color: #22222d;
-  font-size: 22px;
+  font-size: 14px;
+  font-weight: 500;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -153,6 +234,15 @@ body {
   background: transparent;
   color: #6f6f7c;
   cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: #4b4b58;
+}
+
+.form-input[type='password']::-ms-reveal,
+.form-input[type='password']::-ms-clear {
+  display: none;
 }
 
 .options-row {
@@ -200,7 +290,7 @@ body {
 
 .checkbox-text,
 .forgot-link {
-  font-size: 13px;
+  font-size: 12px;
   color: #6a6a77;
 }
 
@@ -211,12 +301,12 @@ body {
 }
 
 .login-button {
-  height: 52px;
+  height: 50px;
   border: 0;
   border-radius: 10px;
   color: #fff;
   background: linear-gradient(90deg, #6d42e6, #7a47ee);
-  font-size: 28px;
+  font-size: 18px;
   font-weight: 700;
   cursor: pointer;
   display: inline-flex;
@@ -280,7 +370,7 @@ body {
   padding: 0 14px;
   text-transform: uppercase;
   letter-spacing: 2.2px;
-  font-size: 11px;
+  font-size: 10px;
   color: #7f7f8e;
   font-weight: 600;
 }
@@ -292,12 +382,12 @@ body {
 }
 
 .social-button {
-  height: 44px;
+  height: 42px;
   border-radius: 9px;
   border: 1px solid #d6d6df;
   background: #f8f8fb;
   color: #474753;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -315,19 +405,7 @@ body {
   border-top: 1px solid #e2e2ea;
   background: #f1f1f6;
   text-align: center;
-  padding: 18px 16px 26px;
-}
-
-.signup-text {
-  font-size: 14px;
-  color: #6e6e7b;
-  margin-bottom: 14px;
-}
-
-.signup-link {
-  color: var(--brand);
-  text-decoration: none;
-  font-weight: 700;
+  padding: 12px 14px 14px;
 }
 
 .security-info {
@@ -338,8 +416,8 @@ body {
   border: 1px solid #dbdbe3;
   background: #f6f6f9;
   border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 12px;
+  padding: 7px 14px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.7px;
   font-weight: 700;
@@ -351,6 +429,21 @@ body {
 }
 
 @media (max-width: 640px) {
+  .login-container {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .login-layout {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+    gap: 12px;
+  }
+
+  .login-side-panel {
+    display: none;
+  }
+
   .login-card {
     max-width: 100%;
   }
@@ -363,28 +456,28 @@ body {
   }
 
   .brand-row h1 {
-    font-size: 32px;
+    font-size: 28px;
   }
 
   .welcome-section h2 {
-    font-size: 33px;
+    font-size: 28px;
   }
 
   .subtitle {
-    font-size: 20px;
+    font-size: 16px;
   }
 
   .form-label {
-    font-size: 15px;
+    font-size: 13px;
   }
 
   .form-input {
-    font-size: 17px;
+    font-size: 14px;
     height: 48px;
   }
 
   .login-button {
-    font-size: 20px;
+    font-size: 17px;
     height: 48px;
   }
 

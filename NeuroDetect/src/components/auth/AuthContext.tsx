@@ -8,7 +8,8 @@ import {
   logoutUser,
   saveSession,
 } from '../../auth/storage';
-import type { AuthUser, UserRole } from '../../auth/types';
+import type { AuthUser } from '../../auth/types';
+import { getDefaultRouteByRole } from '../layout/roleNavigation';
 
 interface LoginResult {
   success: boolean;
@@ -24,19 +25,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-export const getDefaultRouteByRole = (role: UserRole): string => {
-  switch (role) {
-    case 'admin':
-      return '/user-management';
-    case 'analyst':
-      return '/';
-    case 'viewer':
-      return '/reports';
-    default:
-      return '/login';
-  }
-};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getSessionUser());
@@ -103,3 +91,5 @@ export const useAuth = (): AuthContextValue => {
   }
   return context;
 };
+
+export { getDefaultRouteByRole };

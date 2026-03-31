@@ -41,6 +41,7 @@ import '../../pages/css/lstmreal.css';
 declare global {
   interface Window {
     neuroDetectWS?: WebSocket;
+    snnDetectionWS?: WebSocket;
   }
 }
 
@@ -113,8 +114,23 @@ interface ModelInfo {
   };
 }
 
+interface SNNDashboardSnapshot {
+  records: SNNFraudDetectionRecord[];
+  activationHistory: ActivationPoint[];
+  modelStats: ModelStats;
+  modelInfo: ModelInfo;
+  streamSpeed: number;
+}
+
+const SNN_SNAPSHOT_KEY = 'snn_detection_snapshot';
+
 const SNNFraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  const toNumber = (value: unknown, fallback = 0): number => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
   
   // WebSocket state
   const [isConnected, setIsConnected] = useState(false);
@@ -168,6 +184,69 @@ const SNNFraudDetectionDashboard: React.FC = () => {
   const recordsRef = useRef<SNNFraudDetectionRecord[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
+
+  // Restore cached view state to avoid chart/table blank delay after navigation.
+  useEffect(() => {
+    const snapshotRaw = localStorage.getItem(SNN_SNAPSHOT_KEY);
+    if (!snapshotRaw) {
+      return;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotRaw) as Partial<SNNDashboardSnapshot>;
+      const cachedRecords = Array.isArray(snapshot.records) ? snapshot.records.slice(0, maxRecords) : [];
+      const cachedActivationHistory = Array.isArray(snapshot.activationHistory)
+        ? snapshot.activationHistory
+            .map((point) => ({
+              score: toNumber(point?.score, 0),
+              threshold: toNumber(point?.threshold, modelInfo.threshold),
+            }))
+            .slice(-50)
+        : [];
+
+      if (cachedRecords.length > 0) {
+        recordsRef.current = cachedRecords;
+        setRecords(cachedRecords);
+      }
+
+      if (cachedActivationHistory.length > 0) {
+        setActivationHistory(cachedActivationHistory);
+      }
+
+      if (snapshot.modelStats) {
+        setModelStats((previous) => ({ ...previous, ...snapshot.modelStats }));
+      }
+
+      if (snapshot.modelInfo) {
+        setModelInfo((previous) => ({ ...previous, ...snapshot.modelInfo }));
+      }
+
+      if (typeof snapshot.streamSpeed === 'number' && Number.isFinite(snapshot.streamSpeed)) {
+        setStreamSpeed(snapshot.streamSpeed);
+      }
+    } catch (error) {
+      console.warn('Failed to restore SNN snapshot:', error);
+    }
+  }, [maxRecords, modelInfo.threshold]);
+
+  // Persist lightweight snapshot and trimmed shared stream data.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmedRecords = records.slice(0, 120);
+      const snapshot: SNNDashboardSnapshot = {
+        records: trimmedRecords,
+        activationHistory: activationHistory.slice(-50),
+        modelStats,
+        modelInfo,
+        streamSpeed,
+      };
+
+      localStorage.setItem(SNN_SNAPSHOT_KEY, JSON.stringify(snapshot));
+      localStorage.setItem('snn_detection_data', JSON.stringify(trimmedRecords));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [records, activationHistory, modelStats, modelInfo, streamSpeed]);
 
   const getHiddenSizeFromArchitecture = (architecture: string) => {
     const match = architecture.match(/SNN-FC\d+-(\d+)-/);
@@ -501,9 +580,6 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      
-      // Publish data to localStorage for streaming page
-      localStorage.setItem('snn_detection_data', JSON.stringify(updatedRecords));
 
       // Keep score history aligned with the effective threshold used for this exact decision.
       const effectiveThreshold =
@@ -596,8 +672,8 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       risk_distribution: { Low: 0, 'Medium-Low': 0, 'Medium-High': 0, High: 0 },
       prediction_history: []
     });
-    
-    // Clear data in localStorage for streaming page
+
+    localStorage.removeItem(SNN_SNAPSHOT_KEY);
     localStorage.setItem('snn_detection_data', JSON.stringify([]));
   };
 
@@ -674,21 +750,28 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
   // Draw SNN spike activation plot
   useEffect(() => {
-    if (!chartRef.current || activationHistory.length === 0) return;
+    if (!showActivationChart || !chartRef.current || activationHistory.length === 0) return;
 
-    const canvas = chartRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const drawChart = () => {
+      const canvas = chartRef.current;
+      if (!canvas) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Set canvas dimensions
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      if (width === 0 || height === 0) {
+        return;
+      }
 
-    const width = canvas.width;
-    const height = canvas.height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
@@ -697,6 +780,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
       return threshold > 0 ? point.score / threshold : 0;
     });
     const maxActivation = Math.max(...activationRatios, 1.5);
+    const pointsDenominator = Math.max(activationRatios.length - 1, 1);
 
     // Draw decision boundary line (1.0x activation)
     ctx.beginPath();
@@ -716,7 +800,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
     if (activationRatios.length > 1) {
       ctx.beginPath();
       activationRatios.forEach((activationRatio, index) => {
-        const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
+        const x = padding + (index / pointsDenominator) * chartWidth;
         const y = height - padding - (activationRatio / maxActivation) * chartHeight;
         
         if (index === 0) {
@@ -733,7 +817,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
 
     // Draw points
     activationRatios.forEach((activationRatio, index) => {
-      const x = padding + (index / (activationRatios.length - 1)) * chartWidth;
+      const x = padding + (index / pointsDenominator) * chartWidth;
       const y = height - padding - (activationRatio / maxActivation) * chartHeight;
       
       ctx.beginPath();
@@ -743,8 +827,11 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         'var(--warning)' : 'var(--success)';
       ctx.fill();
     });
+    };
 
-  }, [activationHistory, modelInfo.threshold]);
+    const frameId = window.requestAnimationFrame(drawChart);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activationHistory, modelInfo.threshold, showActivationChart]);
 
   return (
     <div className="fraud-dashboard">
@@ -764,7 +851,7 @@ const SNNFraudDetectionDashboard: React.FC = () => {
         <nav className="sidebar-nav">
           <button 
             className="nav-item"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/snnreal')}
           >
             <BarChart3 className="nav-icon" />
             <span>Autoencoder</span>
@@ -798,8 +885,8 @@ const SNNFraudDetectionDashboard: React.FC = () => {
             <span>Model</span>
           </button>
           <button 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
+            className="nav-item"
+            onClick={() => navigate('/investigations')}
           >
             <LineChart className="nav-icon" />
             <span>Analytics</span>

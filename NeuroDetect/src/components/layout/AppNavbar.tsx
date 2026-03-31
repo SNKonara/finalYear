@@ -5,27 +5,7 @@ import { useModelNavbar } from './ModelNavbarContext';
 import type { NavbarThemeConfig } from './ModelNavbarContext';
 import { useTheme } from '../theme/ThemeContext';
 import { useAuth } from '../auth/AuthContext';
-
-type NavItem = {
-  to: string;
-  label: string;
-  match?: string[];
-};
-
-const navItems: NavItem[] = [
-  { to: '/', label: 'Dashboard', match: ['/', '/lstmreal', '/snnreal'] },
-  { to: '/streaming', label: 'Streaming' },
-  { to: '/batch-upload', label: 'Batch Upload' },
-  { to: '/snn-alerts', label: 'Alerts' },
-  { to: '/reports', label: 'Reports' },
-  { to: '/audit', label: 'Audit' },
-  { to: '/user-management', label: 'Users' },
-];
-
-const getCurrentLabel = (pathname: string) => {
-  const item = navItems.find((entry) => entry.match?.includes(pathname) || entry.to === pathname);
-  return item?.label || 'Workspace';
-};
+import { getCurrentSectionLabel } from './roleNavigation';
 
 const modelLabels = {
   autoencoder: 'Autoencoder',
@@ -45,6 +25,8 @@ const defaultTheme: NavbarThemeConfig = {
   shadow: '0 16px 40px rgba(2, 6, 23, 0.36)',
 };
 
+const APP_RAIL_WIDTH = 220;
+
 const AppNavbar: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -54,7 +36,7 @@ const AppNavbar: React.FC = () => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-  const currentLabel = getCurrentLabel(location.pathname);
+  const currentLabel = getCurrentSectionLabel(location.pathname, currentUser?.role);
   const isModelRoute = ['/', '/lstmreal', '/snnreal'].includes(location.pathname);
   const theme = useMemo(
     () => ({
@@ -131,51 +113,62 @@ const AppNavbar: React.FC = () => {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '24px',
+            gap: '20px',
             minWidth: 0,
             flex: 1,
           }}
         >
-          <NavLink
-            to="/"
+          <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              color: theme.textPrimary,
-              textDecoration: 'none',
-              fontWeight: 800,
-              fontSize: '1rem',
-              letterSpacing: '-0.02em',
-              whiteSpace: 'nowrap',
+              justifyContent: 'space-between',
+              width: `${APP_RAIL_WIDTH}px`,
+              minWidth: `${APP_RAIL_WIDTH}px`,
+              gap: '16px',
             }}
           >
-            <span
+            <NavLink
+              to="/snnreal"
               style={{
-                display: 'inline-flex',
+                display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                width: '38px',
-                height: '38px',
-                borderRadius: '12px',
-                background: `linear-gradient(135deg, ${theme.accent}, #2563eb)`,
-                color: '#ffffff',
-                boxShadow: '0 12px 28px rgba(59, 130, 246, 0.2)',
+                gap: '10px',
+                color: theme.textPrimary,
+                textDecoration: 'none',
+                fontWeight: 800,
+                fontSize: '1rem',
+                letterSpacing: '-0.02em',
+                whiteSpace: 'nowrap',
               }}
             >
-              <Activity size={18} />
-            </span>
-            <span style={{ fontSize: '0.96rem' }}>NeuroDetect</span>
-          </NavLink>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '12px',
+                  background: `linear-gradient(135deg, ${theme.accent}, #2563eb)`,
+                  color: '#ffffff',
+                  boxShadow: '0 12px 28px rgba(59, 130, 246, 0.2)',
+                }}
+              >
+                <Activity size={18} />
+              </span>
+              <span style={{ fontSize: '0.96rem' }}>NeuroDetect</span>
+            </NavLink>
 
-          <div
-            style={{
-              width: '1px',
-              height: '28px',
-              background: theme.borderColor,
-              flexShrink: 0,
-            }}
-          />
+            <div
+              style={{
+                width: '1px',
+                alignSelf: 'stretch',
+                background: theme.borderColor,
+                flexShrink: 0,
+              }}
+            />
+          </div>
 
           <div
             style={{

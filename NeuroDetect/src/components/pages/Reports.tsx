@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Calendar,
   ChevronRight,
@@ -12,6 +12,8 @@ import {
   Share2,
   ShieldCheck,
 } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
+import { getRoleSidebarItems } from '../layout/roleNavigation';
 import { useTheme } from '../theme/ThemeContext';
 
 type ReportSummary = {
@@ -137,7 +139,10 @@ const TrendBars: React.FC<{
 
 const Reports: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { currentUser } = useAuth();
   const { currentTheme, isDarkTheme } = useTheme();
+  const navLinks = getRoleSidebarItems(currentUser?.role ?? 'viewer');
   const [reports, setReports] = useState<ModelReport[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -235,17 +240,11 @@ const Reports: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: currentTheme.bgPrimary, color: text }}>
-      <div style={{ maxWidth: '1440px', margin: '0 auto', padding: '0 24px 32px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(320px, 1fr) minmax(0, 2.15fr)', gap: 0, borderLeft: `1px solid ${border}`, borderRight: `1px solid ${border}`, background: shell }}>
+      <div style={{ width: '100%', padding: '0 24px 32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(320px, 1fr) minmax(0, 2.15fr)', gap: 0, borderLeft: `1px solid ${border}`, borderRight: `1px solid ${border}`, background: shell, minHeight: 'calc(100vh - 110px)' }}>
           <aside style={{ borderRight: `1px solid ${border}`, minHeight: 'calc(100vh - 110px)', padding: '22px 0', background: isDarkTheme ? '#0f172a' : '#fbfbfe' }}>
             <nav style={{ display: 'grid', gap: '8px', padding: '0 16px' }}>
-              {[
-                ['Dashboard', '/'],
-                ['Transactions', '/reports'],
-                ['Alerts & Cases', '/reports'],
-                ['Investigations', '/unauthorized'],
-                ['Reports', '/reports'],
-              ].map(([label, to]) => (
+              {navLinks.map(({ label, to }) => (
                 <Link
                   key={label}
                   to={to}
@@ -254,8 +253,8 @@ const Reports: React.FC = () => {
                     borderRadius: '14px',
                     textDecoration: 'none',
                     fontWeight: 700,
-                    color: label === 'Reports' ? text : textSoft,
-                    background: label === 'Reports' ? (isDarkTheme ? '#1f2937' : '#f1f2f7') : 'transparent',
+                    color: location.pathname === to ? text : textSoft,
+                    background: location.pathname === to ? (isDarkTheme ? '#1f2937' : '#f1f2f7') : 'transparent',
                   }}
                 >
                   {label}
@@ -263,20 +262,8 @@ const Reports: React.FC = () => {
               ))}
             </nav>
 
-            <div style={{ marginTop: 'auto', padding: '22px 16px 0', position: 'sticky', top: 'calc(100vh - 180px)' }}>
-              <Link
-                to="/user-management"
-                style={{
-                  display: 'block',
-                  padding: '12px 14px',
-                  borderRadius: '14px',
-                  textDecoration: 'none',
-                  color: textSoft,
-                  fontWeight: 700,
-                }}
-              >
-                Admin Settings
-              </Link>
+            <div style={{ marginTop: 'auto', padding: '22px 16px 0', position: 'sticky', top: 'calc(100vh - 180px)', color: muted, fontSize: '.74rem', fontWeight: 700 }}>
+              Role: {(currentUser?.role ?? 'viewer').toUpperCase()}
             </div>
           </aside>
 

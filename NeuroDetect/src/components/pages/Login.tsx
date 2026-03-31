@@ -47,134 +47,142 @@ const Login: React.FC = () => {
 
   return (
     <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <div className="brand-row">
-            <div className="logo-icon">
-              <Activity className="logo-svg" />
-            </div>
-            <h1>NeuroDetect</h1>
+      <div className="login-backdrop-glow login-backdrop-glow-left" aria-hidden="true" />
+      <div className="login-backdrop-glow login-backdrop-glow-right" aria-hidden="true" />
+
+      <div className="login-layout">
+        <aside className="login-side-panel" aria-hidden="true">
+          <h3>Credit Card Fraud Detection</h3>
+          <p>Use your assigned credentials to continue.</p>
+          <div className="side-panel-pill-row">
+            <span className="side-panel-pill">Real-time Detection</span>
+            <span className="side-panel-pill">Batch Upload</span>
           </div>
-        </div>
+        </aside>
 
-        <div className="welcome-section">
-          <h2>Welcome back</h2>
-          <p className="subtitle">Access your neural fraud detection dashboard</p>
-        </div>
-
-        <form className="login-form" onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="email" className="form-label">Email Address</label>
-            <div className="input-container">
-              <Mail className="input-leading-icon" size={16} />
-              <input
-                type="email"
-                id="email"
-                placeholder="sarah.analyst@neurodetect.io"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                className="form-input"
-                disabled={isLoading}
-              />
+        <div className="login-card">
+          <div className="login-header">
+            <div className="brand-row">
+              <div className="logo-icon">
+                <Activity className="logo-svg" />
+              </div>
+              <h1>NeuroDetect</h1>
             </div>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="password" className="form-label">Password</label>
-            <div className="input-container">
-              <Lock className="input-leading-icon" size={16} />
-              <input
-                type={passwordVisible ? 'text' : 'password'}
-                id="password"
-                placeholder="password123"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="form-input"
-                disabled={isLoading}
-              />
-              <button
-                type="button"
-                aria-label={passwordVisible ? 'Hide password' : 'Show password'}
-                className="password-toggle"
-                onClick={() => setPasswordVisible(!passwordVisible)}
-                disabled={isLoading}
-              >
-                {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+          <div className="welcome-section">
+            <h2>Welcome back</h2>
+            <p className="subtitle">Sign in with your administrator-issued account</p>
+          </div>
+
+          <form className="login-form" onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="email" className="form-label">Email Address</label>
+              <div className="input-container">
+                <Mail className="input-leading-icon" size={16} />
+                <input
+                  type="email"
+                  id="email"
+                  placeholder="sarah.analyst@neurodetect.io"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  className="form-input"
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="password" className="form-label">Password</label>
+              <div className="input-container">
+                <Lock className="input-leading-icon" size={16} />
+                <input
+                  type={passwordVisible ? 'text' : 'password'}
+                  id="password"
+                  placeholder="password123"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="form-input"
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                  className="password-toggle"
+                  onClick={() => setPasswordVisible(!passwordVisible)}
+                  disabled={isLoading}
+                >
+                  {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="options-row">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  className="checkbox-input"
+                  checked={rememberDevice}
+                  onChange={(event) => setRememberDevice(event.target.checked)}
+                />
+                <span className="checkbox-custom"></span>
+                <span className="checkbox-text">Remember this device</span>
+              </label>
+              <a href="#" className="forgot-link" onClick={(event) => event.preventDefault()}>
+                Forgot password?
+              </a>
+            </div>
+
+            {errorMessage && (
+              <div className="security-info" style={{ marginBottom: '12px' }}>
+                <AlertCircle size={14} />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className={`login-button ${isLoading ? 'loading' : ''}`}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <div className="button-loader">
+                  <div className="spinner"></div>
+                  <span>Authenticating...</span>
+                </div>
+              ) : (
+                <>
+                  <span>Sign In</span>
+                  <ArrowRight className="button-icon" size={18} />
+                </>
+              )}
+            </button>
+
+            <div className="divider">
+              <span className="divider-text">or continue with</span>
+            </div>
+
+            <div className="social-login enterprise-login">
+              <button type="button" className="social-button" disabled={isLoading}>
+                <Fingerprint className="social-icon" size={16} />
+                Corporate ID
+              </button>
+              <button type="button" className="social-button" disabled={isLoading}>
+                <Shield className="social-icon" size={16} />
+                SSO Login
               </button>
             </div>
-          </div>
+          </form>
 
-          <div className="options-row">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                className="checkbox-input"
-                checked={rememberDevice}
-                onChange={(event) => setRememberDevice(event.target.checked)}
-              />
-              <span className="checkbox-custom"></span>
-              <span className="checkbox-text">Remember this device</span>
-            </label>
-            <a href="#" className="forgot-link" onClick={(event) => event.preventDefault()}>
-              Forgot password?
-            </a>
-          </div>
-
-          {errorMessage && (
-            <div className="security-info" style={{ marginBottom: '12px' }}>
-              <AlertCircle size={14} />
-              <span>{errorMessage}</span>
+          <div className="login-footer">
+            <div className="security-info">
+              <Shield size={14} />
+              <span>Secure gateway active</span>
             </div>
-          )}
-
-          <button
-            type="submit"
-            className={`login-button ${isLoading ? 'loading' : ''}`}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <div className="button-loader">
-                <div className="spinner"></div>
-                <span>Authenticating...</span>
-              </div>
-            ) : (
-              <>
-                <span>Sign In</span>
-                <ArrowRight className="button-icon" size={18} />
-              </>
-            )}
-          </button>
-
-          <div className="divider">
-            <span className="divider-text">or continue with</span>
-          </div>
-
-          <div className="social-login enterprise-login">
-            <button type="button" className="social-button" disabled={isLoading}>
-              <Fingerprint className="social-icon" size={16} />
-              Corporate ID
-            </button>
-            <button type="button" className="social-button" disabled={isLoading}>
-              <Shield className="social-icon" size={16} />
-              SSO Login
-            </button>
-          </div>
-        </form>
-
-        <div className="login-footer">
-          <p className="signup-text">
-            Don't have an account?{' '}
-            <a href="#" className="signup-link">
-              Request access
-            </a>
-          </p>
-          <div className="security-info">
-            <Shield size={14} />
-            <span>Secure gateway active</span>
           </div>
         </div>
       </div>

@@ -26,6 +26,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import '../../pages/css/streaming.css';
+import { useAuth } from '../auth/AuthContext';
 
 interface StreamingRecord {
   transaction_id: string;
@@ -69,6 +70,7 @@ const MODEL_CHANNELS: Record<RealtimeModel, { dataKey: string; streamingKey: str
 
 const Streaming: React.FC = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   
   // Streaming state (synced from aereal page)
   const [isStreaming, setIsStreaming] = useState(false);
@@ -351,60 +353,68 @@ const Streaming: React.FC = () => {
         </div>
 
         <nav className="sidebar-nav" style={{ padding: '0 16px' }}>
-          <a href="/dashboard" className="nav-item" style={{
+          <button type="button" onClick={() => navigate('/snnreal')} className="nav-item" style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
             padding: '12px 16px',
             borderRadius: '8px',
-            textDecoration: 'none',
+            border: 'none',
+            width: '100%',
             color: 'rgba(148, 163, 184, 1)',
             marginBottom: '8px',
-            transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            background: 'transparent',
+            cursor: 'pointer',
+            textAlign: 'left'
           }}>
             <BarChart3 className="nav-icon" size={20} />
-            <span>Overview</span>
-          </a>
-          <a href="/streaming" className="nav-item active" style={{
+            <span>Dashboard</span>
+          </button>
+          <button type="button" onClick={() => navigate('/streaming')} className="nav-item active" style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
             padding: '12px 16px',
             borderRadius: '8px',
-            textDecoration: 'none',
+            border: 'none',
+            width: '100%',
             background: 'rgba(59, 130, 246, 0.1)',
             color: '#3b82f6',
-            marginBottom: '8px'
+            marginBottom: '8px',
+            cursor: 'pointer',
+            textAlign: 'left'
           }}>
             <Activity className="nav-icon" size={20} />
-            <span>Live Stream</span>
-          </a>
-          <a href="/analytics" className="nav-item" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            textDecoration: 'none',
-            color: 'rgba(148, 163, 184, 1)',
-            marginBottom: '8px'
-          }}>
-            <Server className="nav-icon" size={20} />
-            <span>Analytics</span>
-          </a>
-          <a href="/snnreal" className="nav-item" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            textDecoration: 'none',
-            color: 'rgba(148, 163, 184, 1)',
-            marginBottom: '8px'
-          }}>
-            <Zap className="nav-icon" size={20} />
-            <span>SNN</span>
-          </a>
+            <span>System</span>
+          </button>
+          {currentUser?.role === 'admin' ? (
+            <>
+              <button type="button" onClick={() => navigate('/user-management')} className="nav-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', border: 'none', width: '100%', color: 'rgba(148, 163, 184, 1)', marginBottom: '8px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                <Users className="nav-icon" size={20} />
+                <span>User</span>
+              </button>
+              <button type="button" onClick={() => navigate('/reports')} className="nav-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', border: 'none', width: '100%', color: 'rgba(148, 163, 184, 1)', marginBottom: '8px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                <PieChart className="nav-icon" size={20} />
+                <span>Report</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => navigate('/investigations')} className="nav-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', border: 'none', width: '100%', color: 'rgba(148, 163, 184, 1)', marginBottom: '8px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                <Server className="nav-icon" size={20} />
+                <span>Investigation</span>
+              </button>
+              <button type="button" onClick={() => navigate('/batch-upload')} className="nav-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', border: 'none', width: '100%', color: 'rgba(148, 163, 184, 1)', marginBottom: '8px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                <Zap className="nav-icon" size={20} />
+                <span>Batch Upload</span>
+              </button>
+              <button type="button" onClick={() => navigate('/reports')} className="nav-item" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', border: 'none', width: '100%', color: 'rgba(148, 163, 184, 1)', marginBottom: '8px', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                <PieChart className="nav-icon" size={20} />
+                <span>Reports</span>
+              </button>
+            </>
+          )}
         </nav>
       
         <div className="sidebar-footer" style={{ padding: '24px', marginTop: 'auto' }}>
@@ -443,7 +453,7 @@ const Streaming: React.FC = () => {
         <div className="top-bar" style={{ marginTop: '70px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="top-bar-info" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/snnreal')}
               style={{
                 display: 'flex',
                 alignItems: 'center',

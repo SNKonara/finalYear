@@ -36,6 +36,7 @@ import {
   Info
 } from 'lucide-react';
 import '../../pages/css/batch_upload.css';
+import { useAuth } from '../auth/AuthContext';
 
 interface ModelOption {
   id: 'autoencoder' | 'lstm' | 'snn';
@@ -75,9 +76,20 @@ interface ModelInfo {
   };
 }
 
+const getDashboardRouteForModel = (model: ModelOption['id']): string => {
+  if (model === 'lstm') {
+    return '/lstmreal';
+  }
+  if (model === 'snn') {
+    return '/snnreal';
+  }
+  return '/';
+};
+
 const BatchProcessing: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentUser } = useAuth();
 
   // Pre-select the model if realtime models page passed one via navigation state
   const stateModel = (location.state as { model?: ModelOption['id'] } | null)?.model;
@@ -114,6 +126,13 @@ const BatchProcessing: React.FC = () => {
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('tuning') === '1') {
+      setActiveTab('tuning');
+    }
+  }, [location.search]);
 
   // Model options
   const modelOptions: ModelOption[] = [
@@ -501,10 +520,17 @@ const BatchProcessing: React.FC = () => {
         <nav className="sidebar-nav">
           <button 
             className="nav-item"
-            onClick={() => navigate('/', { state: { model: selectedModel } })}
+            onClick={() => navigate(getDashboardRouteForModel(selectedModel), { state: { model: selectedModel } })}
           >
             <Brain className="nav-icon" />
-            <span>Realtime Models</span>
+            <span>Dashboard</span>
+          </button>
+          <button 
+            className="nav-item"
+            onClick={() => navigate(currentUser?.role === 'admin' ? '/reports' : '/investigations')}
+          >
+            <Search className="nav-icon" />
+            <span>{currentUser?.role === 'admin' ? 'Report' : 'Investigation'}</span>
           </button>
           <button 
             className={`nav-item ${activeTab === 'upload' ? 'active' : ''}`}
@@ -528,7 +554,14 @@ const BatchProcessing: React.FC = () => {
             disabled={results.length === 0}
           >
             <Sliders className="nav-icon" />
-            <span>Threshold Tuning</span>
+            <span>Model Tune</span>
+          </button>
+          <button 
+            className="nav-item"
+            onClick={() => navigate('/reports')}
+          >
+            <FileText className="nav-icon" />
+            <span>Reports</span>
           </button>
         </nav>
 

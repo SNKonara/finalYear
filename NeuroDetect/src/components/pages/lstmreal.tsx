@@ -95,8 +95,23 @@ interface ModelInfo {
   num_layers?: number;
 }
 
+interface LSTMDashboardSnapshot {
+  records: LSTMFraudDetectionRecord[];
+  scoreHistory: number[];
+  modelStats: ModelStats;
+  modelInfo: ModelInfo;
+  streamSpeed: number;
+}
+
+const LSTM_SNAPSHOT_KEY = 'lstm_detection_snapshot';
+
 const LSTMFraudDetectionDashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  const toNumber = (value: unknown, fallback = 0): number => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
   
   // WebSocket state
   const [isConnected, setIsConnected] = useState(false);
@@ -146,6 +161,64 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
   const recordsRef = useRef<LSTMFraudDetectionRecord[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
+
+  // Restore recent state instantly so the chart is visible immediately after route changes.
+  useEffect(() => {
+    const snapshotRaw = localStorage.getItem(LSTM_SNAPSHOT_KEY);
+    if (!snapshotRaw) {
+      return;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotRaw) as Partial<LSTMDashboardSnapshot>;
+      const cachedRecords = Array.isArray(snapshot.records) ? snapshot.records.slice(0, maxRecords) : [];
+      const cachedScoreHistory = Array.isArray(snapshot.scoreHistory)
+        ? snapshot.scoreHistory.map((value) => toNumber(value, 0)).slice(-50)
+        : [];
+
+      if (cachedRecords.length > 0) {
+        recordsRef.current = cachedRecords;
+        setRecords(cachedRecords);
+      }
+
+      if (cachedScoreHistory.length > 0) {
+        setScoreHistory(cachedScoreHistory);
+      }
+
+      if (snapshot.modelStats) {
+        setModelStats((previous) => ({ ...previous, ...snapshot.modelStats }));
+      }
+
+      if (snapshot.modelInfo) {
+        setModelInfo((previous) => ({ ...previous, ...snapshot.modelInfo }));
+      }
+
+      if (typeof snapshot.streamSpeed === 'number' && Number.isFinite(snapshot.streamSpeed)) {
+        setStreamSpeed(snapshot.streamSpeed);
+      }
+    } catch (error) {
+      console.warn('Failed to restore LSTM snapshot:', error);
+    }
+  }, [maxRecords]);
+
+  // Persist lightweight dashboard snapshot and trimmed shared data.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmedRecords = records.slice(0, 120);
+      const snapshot: LSTMDashboardSnapshot = {
+        records: trimmedRecords,
+        scoreHistory: scoreHistory.slice(-50),
+        modelStats,
+        modelInfo,
+        streamSpeed,
+      };
+
+      localStorage.setItem(LSTM_SNAPSHOT_KEY, JSON.stringify(snapshot));
+      localStorage.setItem('lstm_detection_data', JSON.stringify(trimmedRecords));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [records, scoreHistory, modelStats, modelInfo, streamSpeed]);
 
   // Sync streaming state across pages using localStorage
   useEffect(() => {
@@ -393,9 +466,6 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
       const updatedRecords = [newRecord, ...recordsRef.current.slice(0, maxRecords - 1)];
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      
-      // Publish data to localStorage for streaming page
-      localStorage.setItem('lstm_detection_data', JSON.stringify(updatedRecords));
 
       // Update score history
       setScoreHistory(prev => [...prev.slice(-49), newRecord.fraud_score]);
@@ -478,8 +548,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
       risk_distribution: { Low: 0, 'Medium-Low': 0, 'Medium-High': 0, High: 0 },
       prediction_history: []
     });
-    
-    // Clear data in localStorage for streaming page
+
+    localStorage.removeItem(LSTM_SNAPSHOT_KEY);
     localStorage.setItem('lstm_detection_data', JSON.stringify([]));
   };
 
@@ -537,28 +607,37 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
   // Draw fraud score chart
   useEffect(() => {
-    if (!chartRef.current || scoreHistory.length === 0) return;
+    if (!showScoreChart || !chartRef.current || scoreHistory.length === 0) return;
 
-    const canvas = chartRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const drawChart = () => {
+      const canvas = chartRef.current;
+      if (!canvas) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Set canvas dimensions
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      if (width === 0 || height === 0) {
+        return;
+      }
 
-    const width = canvas.width;
-    const height = canvas.height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
+    const maxValue = Math.max(...scoreHistory, modelInfo.threshold, 1);
+    const pointsDenominator = Math.max(scoreHistory.length - 1, 1);
 
     // Draw threshold line
     ctx.beginPath();
-    const thresholdY = height - padding - (modelInfo.threshold / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
+    const thresholdY = height - padding - (modelInfo.threshold / maxValue) * chartHeight;
     ctx.moveTo(padding, thresholdY);
     ctx.lineTo(width - padding, thresholdY);
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
@@ -574,8 +653,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
     if (scoreHistory.length > 1) {
       ctx.beginPath();
       scoreHistory.forEach((score, index) => {
-        const x = padding + (index / (scoreHistory.length - 1)) * chartWidth;
-        const y = height - padding - (score / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
+        const x = padding + (index / pointsDenominator) * chartWidth;
+        const y = height - padding - (score / maxValue) * chartHeight;
         
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -591,8 +670,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
 
     // Draw points
     scoreHistory.forEach((score, index) => {
-      const x = padding + (index / (scoreHistory.length - 1)) * chartWidth;
-      const y = height - padding - (score / Math.max(...scoreHistory, modelInfo.threshold, 1)) * chartHeight;
+      const x = padding + (index / pointsDenominator) * chartWidth;
+      const y = height - padding - (score / maxValue) * chartHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -601,8 +680,11 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         'var(--warning)' : 'var(--success)';
       ctx.fill();
     });
+    };
 
-  }, [scoreHistory, modelInfo.threshold]);
+    const frameId = window.requestAnimationFrame(drawChart);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [scoreHistory, modelInfo.threshold, showScoreChart]);
 
   return (
     <div className="fraud-dashboard">
@@ -622,7 +704,7 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
         <nav className="sidebar-nav">
           <button 
             className="nav-item"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/snnreal')}
           >
             <BarChart3 className="nav-icon" />
             <span>Autoencoder</span>
@@ -656,8 +738,8 @@ const LSTMFraudDetectionDashboard: React.FC = () => {
             <span>Model</span>
           </button>
           <button 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
+            className="nav-item"
+            onClick={() => navigate('/investigations')}
           >
             <LineChart className="nav-icon" />
             <span>Analytics</span>

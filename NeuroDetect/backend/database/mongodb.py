@@ -46,7 +46,8 @@ class MongoDB:
             'statistics': 'statistics',
             'immediate_alerts': 'immediate_alerts',
             'hourly_reports': 'hourly_reports',
-            'model_reports': 'model_reports'
+            'model_reports': 'model_reports',
+            'resolved_frauds': 'resolved_frauds'
         }
     
     def connect(self):
@@ -109,6 +110,11 @@ class MongoDB:
             self.db[self.COLLECTIONS['model_reports']].create_index('generated_at')
             self.db[self.COLLECTIONS['model_reports']].create_index('source.type')
             self.db[self.COLLECTIONS['model_reports']].create_index('model.type')
+
+            self.db[self.COLLECTIONS['resolved_frauds']].create_index('source_alert_id', unique=True)
+            self.db[self.COLLECTIONS['resolved_frauds']].create_index('transaction_id')
+            self.db[self.COLLECTIONS['resolved_frauds']].create_index('resolved_at_dt')
+            self.db[self.COLLECTIONS['resolved_frauds']].create_index('resolved_by.email')
             
         except Exception:
             pass  # Indexes may already exist
@@ -356,6 +362,139 @@ class MongoDB:
                 'updated': update_result.modified_count > 0,
                 'matched_count': update_result.matched_count,
                 'modified_count': update_result.modified_count,
+            }
+        except Exception as e:
+            return {'updated': False, 'reason': str(e)}
+
+    def resolve_immediate_alert_as_fraud(
+        self,
+        transaction_id=None,
+        alert_id=None,
+        analyst=None,
+        resolution_note=None,
+    ):
+        """Archive an active alert as resolved fraud with compact analyst-attributed details."""
+        if not self.connected:
+            return {'updated': False, 'reason': 'not_connected'}
+
+        if not transaction_id and not alert_id:
+            return {'updated': False, 'reason': 'missing_identifier'}
+
+        try:
+            query = {}
+            if transaction_id:
+                query['transaction_id'] = transaction_id
+            if alert_id:
+                if ObjectId is not None:
+                    try:
+                        query['_id'] = ObjectId(alert_id)
+                    except Exception:
+                        query['_id'] = alert_id
+                else:
+                    query['_id'] = alert_id
+
+            alerts_collection = self.db[self.COLLECTIONS['immediate_alerts']]
+            resolved_collection = self.db[self.COLLECTIONS['resolved_frauds']]
+            alert_doc = alerts_collection.find_one(query)
+
+            if not alert_doc:
+                return {'updated': False, 'reason': 'not_found'}
+
+            source_alert_id = str(alert_doc.get('_id'))
+            existing = resolved_collection.find_one({'source_alert_id': source_alert_id})
+            if existing:
+                return {
+                    'updated': False,
+                    'reason': 'already_resolved',
+                    'resolved_record_id': str(existing.get('_id')),
+                    'transaction_id': str(existing.get('transaction_id') or ''),
+                }
+
+            tx_doc = alert_doc.get('transaction_data') if isinstance(alert_doc.get('transaction_data'), dict) else {}
+            raw_model = str(alert_doc.get('model_type') or '').strip().lower()
+            if raw_model in {'ae', 'autoencoder'}:
+                model_type = 'autoencoder'
+                model_label = 'Autoencoder'
+            elif raw_model == 'lstm':
+                model_type = 'lstm'
+                model_label = 'LSTM'
+            elif raw_model == 'snn':
+                model_type = 'snn'
+                model_label = 'SNN'
+            else:
+                model_type = raw_model or 'unknown'
+                model_label = model_type.title()
+
+            fraud_score = float(alert_doc.get('fraud_probability', 0.0) or 0.0)
+            resolved_at = datetime.utcnow()
+            analyst_info = analyst if isinstance(analyst, dict) else {}
+            compact_evidence = []
+            for key, value in tx_doc.items():
+                if key in {'_id', 'transaction_id', 'inserted_at_dt'}:
+                    continue
+                if isinstance(value, (dict, list, tuple)):
+                    continue
+                compact_evidence.append({'attribute': str(key), 'value': str(value)})
+                if len(compact_evidence) >= 6:
+                    break
+
+            resolved_record = {
+                'source_alert_id': source_alert_id,
+                'transaction_id': str(alert_doc.get('transaction_id') or tx_doc.get('transaction_id') or ''),
+                'title': str(alert_doc.get('title') or ''),
+                'model_type': model_type,
+                'model_label': model_label,
+                'risk_level': str(alert_doc.get('risk_level') or 'High'),
+                'fraud_score': fraud_score,
+                'decision_threshold': float(alert_doc.get('decision_threshold', 0.5) or 0.5),
+                'risk_percent': max(0, min(100, int(round(fraud_score * 100)))),
+                'amount': float(tx_doc.get('amt', 0.0) or 0.0),
+                'merchant': str(tx_doc.get('merchant') or tx_doc.get('category') or 'N/A'),
+                'category': str(tx_doc.get('category') or 'N/A'),
+                'city': str(tx_doc.get('city') or 'N/A'),
+                'state': str(tx_doc.get('state') or 'N/A'),
+                'job': str(tx_doc.get('job') or 'N/A'),
+                'status': 'resolved_fraud',
+                'alerted_at': alert_doc.get('alerted_at') or alert_doc.get('inserted_at'),
+                'resolved_at': resolved_at.isoformat(),
+                'resolved_at_dt': resolved_at,
+                'resolved_by': {
+                    'id': str(analyst_info.get('id') or ''),
+                    'name': str(analyst_info.get('name') or 'Unknown Analyst'),
+                    'email': str(analyst_info.get('email') or ''),
+                    'role': str(analyst_info.get('role') or 'analyst'),
+                },
+                'resolution_note': str(resolution_note or 'Confirmed as fraud by analyst review.'),
+                'transaction_context': {
+                    'category': str(tx_doc.get('category') or 'N/A'),
+                    'city': str(tx_doc.get('city') or 'N/A'),
+                    'state': str(tx_doc.get('state') or 'N/A'),
+                    'job': str(tx_doc.get('job') or 'N/A'),
+                },
+                'evidence': compact_evidence,
+                'source': 'mongodb:resolved_frauds',
+            }
+
+            insert_result = resolved_collection.insert_one(resolved_record)
+            alerts_collection.update_one(
+                {'_id': alert_doc.get('_id')},
+                {
+                    '$set': {
+                        'alert_status': 'resolved_fraud',
+                        'resolved_at': resolved_at.isoformat(),
+                        'resolved_at_dt': resolved_at,
+                        'resolved_by': resolved_record['resolved_by'],
+                    }
+                }
+            )
+            alerts_collection.delete_one({'_id': alert_doc.get('_id')})
+
+            return {
+                'updated': True,
+                'transaction_id': resolved_record['transaction_id'],
+                'resolved_record_id': str(insert_result.inserted_id),
+                'resolved_by': resolved_record['resolved_by'],
+                'status': resolved_record['status'],
             }
         except Exception as e:
             return {'updated': False, 'reason': str(e)}

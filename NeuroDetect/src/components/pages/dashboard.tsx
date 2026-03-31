@@ -305,8 +305,8 @@ const App: React.FC = () => {
             <span>Live Stream</span>
           </button>
           <button 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('analytics')}
+            className="nav-item"
+            onClick={() => window.location.assign('/investigations')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -315,8 +315,8 @@ const App: React.FC = () => {
               borderRadius: '8px',
               border: 'none',
               width: '100%',
-              background: activeTab === 'analytics' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-              color: activeTab === 'analytics' ? '#3b82f6' : 'rgba(148, 163, 184, 1)',
+              background: 'transparent',
+              color: 'rgba(148, 163, 184, 1)',
               cursor: 'pointer',
               marginBottom: '8px',
               transition: 'all 0.2s'

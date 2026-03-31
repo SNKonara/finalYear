@@ -14,7 +14,7 @@ const Unauthorized: React.FC = () => {
         <p style={{ margin: '0 0 22px', color: currentTheme.textSecondary, lineHeight: 1.7 }}>
           Your role <span style={{ fontWeight: 700, color: '#2563eb' }}>{currentUser?.role ?? 'unknown'}</span> does not have permission to open this section.
         </p>
-        <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '12px 16px', borderRadius: '12px', background: '#2563eb', color: '#ffffff', textDecoration: 'none', fontWeight: 700 }}>
+        <Link to="/snnreal" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '12px 16px', borderRadius: '12px', background: '#2563eb', color: '#ffffff', textDecoration: 'none', fontWeight: 700 }}>
           Back to model page
         </Link>
       </div>

@@ -18,8 +18,32 @@ import {
 import '../../pages/css/aereal.css';
 import { useModelNavbar } from '../layout/ModelNavbarContext';
 import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../auth/AuthContext';
 
 type ModelType = 'autoencoder' | 'lstm' | 'snn';
+
+const getModelFromRoute = (pathname: string, stateModel?: ModelType | null): ModelType => {
+  if (stateModel) {
+    return stateModel;
+  }
+  if (pathname === '/lstmreal') {
+    return 'lstm';
+  }
+  if (pathname === '/snnreal') {
+    return 'snn';
+  }
+  return 'snn';
+};
+
+const getRouteForModel = (model: ModelType): string => {
+  if (model === 'lstm') {
+    return '/lstmreal';
+  }
+  if (model === 'snn') {
+    return '/snnreal';
+  }
+  return '/';
+};
 
 interface FraudDetectionRecord {
   transaction_id: string;
@@ -86,6 +110,16 @@ interface ModelInfo {
   };
 }
 
+interface DashboardSnapshot {
+  records: FraudDetectionRecord[];
+  errorHistory: number[];
+  modelStats: ModelStats;
+  modelInfo: ModelInfo;
+  streamSpeed: number;
+}
+
+const getDashboardSnapshotKey = (model: ModelType) => `fraud_dashboard_snapshot_${model}`;
+
 declare global {
   interface Window {
     unifiedDetectionWS?: WebSocket;
@@ -95,12 +129,13 @@ declare global {
 const UnifiedModelsDashboard: React.FC = () => {
   const { setNavbarConfig, clearNavbarConfig } = useModelNavbar();
   const { isDarkTheme, currentTheme } = useTheme();
+  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   // Pre-select the model if batch upload passed one via navigation state
   const stateModel = (location.state as { model?: ModelType } | null)?.model;
-  const [selectedModel, setSelectedModel] = useState<ModelType>(stateModel ?? 'autoencoder');
+  const [selectedModel, setSelectedModel] = useState<ModelType>(() => getModelFromRoute(location.pathname, stateModel ?? null));
 
   // WebSocket state
   const [isConnected, setIsConnected] = useState(false);
@@ -170,6 +205,10 @@ const UnifiedModelsDashboard: React.FC = () => {
   // Handle model change
   const handleModelChange = (model: ModelType) => {
     setSelectedModel(model);
+    const targetRoute = getRouteForModel(model);
+    if (location.pathname !== targetRoute) {
+      navigate(targetRoute);
+    }
     setRecords([]);
     setErrorHistory([]);
     setModelStats({
@@ -193,6 +232,67 @@ const UnifiedModelsDashboard: React.FC = () => {
       sendCommand('get_status');
     }
   };
+
+  useEffect(() => {
+    const routeModel = getModelFromRoute(location.pathname, stateModel ?? null);
+    setSelectedModel((previous) => (previous === routeModel ? previous : routeModel));
+  }, [location.pathname, stateModel]);
+
+  // Restore cached dashboard state instantly when returning to this page.
+  useEffect(() => {
+    const snapshotRaw = localStorage.getItem(getDashboardSnapshotKey(selectedModel));
+    if (!snapshotRaw) {
+      return;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotRaw) as Partial<DashboardSnapshot>;
+      const cachedRecords = Array.isArray(snapshot.records) ? snapshot.records.slice(0, 500) : [];
+      const cachedErrorHistory = Array.isArray(snapshot.errorHistory)
+        ? snapshot.errorHistory.map((value) => toNumber(value, 0)).slice(-50)
+        : [];
+
+      if (cachedRecords.length > 0) {
+        recordsRef.current = cachedRecords;
+        setRecords(cachedRecords);
+      }
+
+      if (cachedErrorHistory.length > 0) {
+        setErrorHistory(cachedErrorHistory);
+      }
+
+      if (snapshot.modelStats) {
+        setModelStats((previous) => ({ ...previous, ...snapshot.modelStats }));
+      }
+
+      if (snapshot.modelInfo) {
+        setModelInfo((previous) => ({ ...previous, ...snapshot.modelInfo }));
+      }
+
+      if (typeof snapshot.streamSpeed === 'number' && Number.isFinite(snapshot.streamSpeed)) {
+        setStreamSpeed(snapshot.streamSpeed);
+      }
+    } catch (error) {
+      console.warn('Failed to restore dashboard snapshot:', error);
+    }
+  }, [selectedModel]);
+
+  // Persist a lightweight snapshot so chart/table can render immediately after navigation.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const snapshot: DashboardSnapshot = {
+        records: records.slice(0, 120),
+        errorHistory: errorHistory.slice(-50),
+        modelStats,
+        modelInfo,
+        streamSpeed,
+      };
+
+      localStorage.setItem(getDashboardSnapshotKey(selectedModel), JSON.stringify(snapshot));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [selectedModel, records, errorHistory, modelStats, modelInfo, streamSpeed]);
 
   // Sync streaming state across pages using localStorage
   useEffect(() => {
@@ -425,8 +525,6 @@ const UnifiedModelsDashboard: React.FC = () => {
       const updatedRecords = [newRecord, ...recordsRef.current.slice(0, 499)];
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      
-      localStorage.setItem('fraud_detection_data', JSON.stringify(updatedRecords));
 
       const errorValue = data.reconstruction_error ?? data.fraud_score ?? 0;
       setErrorHistory(prev => [...prev.slice(-49), toNumber(errorValue, 0)]);
@@ -506,8 +604,8 @@ const UnifiedModelsDashboard: React.FC = () => {
       risk_distribution: {},
       prediction_history: []
     });
-    
-    localStorage.setItem('fraud_detection_data', JSON.stringify([]));
+
+    localStorage.removeItem(getDashboardSnapshotKey(selectedModel));
     sendCommand('reset_stats');
   };
 
@@ -623,26 +721,37 @@ const UnifiedModelsDashboard: React.FC = () => {
 
   // Draw error/score chart
   useEffect(() => {
-    if (!chartRef.current || errorHistory.length === 0) return;
+    if (!showChart || !chartRef.current || errorHistory.length === 0) return;
 
-    const canvas = chartRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const drawChart = () => {
+      const canvas = chartRef.current;
+      if (!canvas) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      if (width === 0 || height === 0) {
+        return;
+      }
 
-    const width = canvas.width;
-    const height = canvas.height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
     const padding = 40;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
+    const maxValue = Math.max(...errorHistory, modelInfo.threshold, 0.000001);
+    const pointsDenominator = Math.max(errorHistory.length - 1, 1);
 
     // Draw threshold line
     ctx.beginPath();
-    const thresholdY = height - padding - (modelInfo.threshold / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+    const thresholdY = height - padding - (modelInfo.threshold / maxValue) * chartHeight;
     ctx.moveTo(padding, thresholdY);
     ctx.lineTo(width - padding, thresholdY);
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
@@ -661,8 +770,8 @@ const UnifiedModelsDashboard: React.FC = () => {
     if (errorHistory.length > 1) {
       ctx.beginPath();
       errorHistory.forEach((error, index) => {
-        const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
-        const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+        const x = padding + (index / pointsDenominator) * chartWidth;
+        const y = height - padding - (error / maxValue) * chartHeight;
         
         if (index === 0) {
           ctx.moveTo(x, y);
@@ -678,8 +787,8 @@ const UnifiedModelsDashboard: React.FC = () => {
 
     // Draw points
     errorHistory.forEach((error, index) => {
-      const x = padding + (index / (errorHistory.length - 1)) * chartWidth;
-      const y = height - padding - (error / Math.max(...errorHistory, modelInfo.threshold)) * chartHeight;
+      const x = padding + (index / pointsDenominator) * chartWidth;
+      const y = height - padding - (error / maxValue) * chartHeight;
       
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -689,8 +798,11 @@ const UnifiedModelsDashboard: React.FC = () => {
       ctx.fillStyle = color;
       ctx.fill();
     });
+    };
 
-  }, [errorHistory, modelInfo.threshold, selectedModel]);
+    const frameId = window.requestAnimationFrame(drawChart);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [errorHistory, modelInfo.threshold, selectedModel, showChart]);
 
   return (
     <div 
@@ -714,37 +826,47 @@ const UnifiedModelsDashboard: React.FC = () => {
             onClick={() => setActiveTab('overview')}
           >
             <BarChart3 className="nav-icon" />
-            <span>Overview</span>
+            <span>Dashboard</span>
           </button>
-          <button 
-            className={`nav-item ${activeTab === 'model' ? 'active' : ''}`}
-            onClick={() => setActiveTab('model')}
-          >
-            <Layers className="nav-icon" />
-            <span>Model Info</span>
-          </button>
-          <button 
-            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
-          >
-            <LineChart className="nav-icon" />
-            <span>Analytics</span>
-          </button>
-          <button 
-            className={`nav-item ${activeTab === 'system' ? 'active' : ''}`}
-            onClick={() => setActiveTab('system')}
-          >
-            <Cpu className="nav-icon" />
-            <span>System</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => navigate('/batch-upload', { state: { model: selectedModel } })}
-            style={{ marginTop: '8px', borderTop: `1px solid ${currentTheme.borderColor}`, paddingTop: '12px' }}
-          >
-            <Upload className="nav-icon" />
-            <span>Batch Upload</span>
-          </button>
+
+          {currentUser?.role === 'admin' ? (
+            <>
+              <button className="nav-item" onClick={() => navigate('/user-management')}>
+                <Layers className="nav-icon" />
+                <span>User</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/reports')}>
+                <AlertCircle className="nav-icon" />
+                <span>Report</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/system')}>
+                <Cpu className="nav-icon" />
+                <span>System</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="nav-item" onClick={() => navigate('/investigations')}>
+                <LineChart className="nav-icon" />
+                <span>Investigation</span>
+              </button>
+              <button className={`nav-item ${activeTab === 'system' ? 'active' : ''}`} onClick={() => setActiveTab('system')}>
+                <Cpu className="nav-icon" />
+                <span>System</span>
+              </button>
+              <button
+                className="nav-item"
+                onClick={() => navigate('/batch-upload', { state: { model: selectedModel } })}
+              >
+                <Upload className="nav-icon" />
+                <span>Batch Upload</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate('/reports')}>
+                <AlertCircle className="nav-icon" />
+                <span>Reports</span>
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="sidebar-footer">
