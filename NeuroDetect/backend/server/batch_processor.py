@@ -1118,11 +1118,14 @@ class BatchProcessor:
                         'total_fraud_amount': float(row['total_fraud_amount']),
                     })
 
+            top_merchant_name = top_merchant_rows[0]['merchant_name'] if top_merchant_rows else 'N/A'
+            top_merchant_amount = top_merchant_rows[0]['total_fraud_amount'] if top_merchant_rows else 0.0
+
             analyst_comments = (
                 f"Batch {batch_id} processed {total_rows} transaction(s) using {model_type.upper()}. "
                 f"Detected {int(stats['fraud_count'])} fraud case(s) ({float(stats['fraud_percentage']):.2f}%). "
-                f"Highest concentration appears in {top_merchant_rows[0]['merchant_name'] if top_merchant_rows else 'N/A'} "
-                f"with fraud exposure of ${top_merchant_rows[0]['total_fraud_amount']:.2f}."
+                f"Highest concentration appears in {top_merchant_name} "
+                f"with fraud exposure of ${top_merchant_amount:.2f}."
             )
 
             report_sections = {

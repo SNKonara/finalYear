@@ -14,6 +14,8 @@ import {
 import '../../pages/css/login.css';
 import { getDefaultRouteByRole, useAuth } from '../auth/AuthContext';
 
+const ORGANIZATION_EMAIL_PATTERN = /^[^\s@]+@neurodetect\.ai$/i;
+
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -28,6 +30,12 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+
+    if (!ORGANIZATION_EMAIL_PATTERN.test(email.trim())) {
+      setErrorMessage('Use your organization email in the format xxx@neurodetect.ai');
+      return;
+    }
+
     setIsLoading(true);
 
     const result = await login(email, password);
@@ -83,13 +91,14 @@ const Login: React.FC = () => {
                 <input
                   type="email"
                   id="email"
-                  placeholder="sarah.analyst@neurodetect.io"
+                  placeholder="sarah.analyst@neurodetect.ai"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
                   className="form-input"
                   disabled={isLoading}
+                  pattern="^[^\s@]+@neurodetect\.ai$"
                 />
               </div>
             </div>

@@ -98,6 +98,7 @@ const Streaming: React.FC = () => {
   
   // Refs
   const recordsRef = useRef<StreamingRecord[]>([]);
+  const wsControlRef = useRef<WebSocket | null>(null);
 
   const normalizeRecords = useCallback((input: any[]): StreamingRecord[] => {
     return input.map((row: any, index: number) => {
@@ -255,9 +256,59 @@ const Streaming: React.FC = () => {
     };
   }, [activeModel, applyModelData, normalizeRecords, readModelData]);
 
+  // Lightweight websocket control channel for speed updates from this page.
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8765');
+    wsControlRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ command: 'get_status' }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (typeof payload.stream_speed === 'number' && Number.isFinite(payload.stream_speed)) {
+          setStreamSpeed(payload.stream_speed);
+        }
+        if (typeof payload.speed === 'number' && Number.isFinite(payload.speed)) {
+          setStreamSpeed(payload.speed);
+        }
+      } catch {
+        // Ignore non-JSON messages.
+      }
+    };
+
+    return () => {
+      if (wsControlRef.current === ws) {
+        wsControlRef.current = null;
+      }
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+  }, []);
+
+  const sendSpeedCommand = (speed: number) => {
+    const payload = JSON.stringify({ command: 'set_speed', speed });
+
+    if (wsControlRef.current && wsControlRef.current.readyState === WebSocket.OPEN) {
+      wsControlRef.current.send(payload);
+      return;
+    }
+
+    if (window.unifiedDetectionWS && window.unifiedDetectionWS.readyState === WebSocket.OPEN) {
+      window.unifiedDetectionWS.send(payload);
+    }
+  };
+
   const updateStreamSpeed = (speed: number) => {
+    if (!Number.isFinite(speed) || speed <= 0) {
+      return;
+    }
     setStreamSpeed(speed);
     localStorage.setItem('fraud_detection_speed', speed.toString());
+    sendSpeedCommand(speed);
   };
 
   // Filter records based on search and filters

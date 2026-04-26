@@ -5,20 +5,183 @@ Routes: /batch/process  /batch/download/{batch_id}
 """
 import json
 import logging
+import io
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 from api_utils import _json_safe, _load_batch_result_payload
 from batch_processor import processor
-from shared_state import MODEL_CONFIGS, MODELS, RESULTS_DIR
+from shared_state import MODEL_CONFIGS, MODELS, RESULTS_DIR, SAVED_MODELS_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/batch", tags=["batch"])
+
+THRESHOLD_OVERRIDES_PATH = SAVED_MODELS_DIR / "threshold_overrides.json"
+THRESHOLD_AUDIT_COLLECTION = "threshold_audit_logs"
+
+
+class ThresholdUpdateRequest(BaseModel):
+    model_type: str
+    threshold: float
+    persist: bool = True
+    reason: Optional[str] = None
+
+
+def _resolve_actor(authorization: Optional[str]) -> dict[str, str]:
+    if not authorization:
+        return {'email': 'system', 'role': 'system'}
+
+    try:
+        from routes_auth import _resolve_current_user
+
+        user = _resolve_current_user(authorization)
+        return {
+            'email': str(user.get('email', 'unknown')),
+            'role': str(user.get('role', 'unknown')),
+        }
+    except Exception:
+        return {'email': 'unknown', 'role': 'unknown'}
+
+
+def _write_threshold_audit(
+    *,
+    model_type: str,
+    previous_threshold: float,
+    new_threshold: float,
+    persisted: bool,
+    actor: dict[str, str],
+    reason: Optional[str],
+) -> bool:
+    db_client = getattr(processor, 'db', None)
+    if not db_client or not getattr(db_client, 'connected', False):
+        return False
+
+    try:
+        payload = {
+            'event_type': 'threshold_update',
+            'model_type': model_type,
+            'previous_threshold': float(previous_threshold),
+            'new_threshold': float(new_threshold),
+            'persisted': bool(persisted),
+            'reason': (reason or '').strip() or None,
+            'changed_at': datetime.utcnow().isoformat(),
+            'changed_at_dt': datetime.utcnow(),
+            'actor': {
+                'email': actor.get('email', 'unknown'),
+                'role': actor.get('role', 'unknown'),
+            },
+        }
+        db_client.db[THRESHOLD_AUDIT_COLLECTION].insert_one(payload)
+        return True
+    except Exception as error:
+        logger.warning(f"Failed to write threshold audit event: {error}")
+        return False
+
+
+def _validate_threshold(model_type: str, threshold: float) -> None:
+    if model_type == 'autoencoder':
+        if threshold < 0 or threshold > 1:
+            raise HTTPException(status_code=400, detail='Autoencoder threshold must be between 0 and 1')
+    else:
+        if threshold < 0 or threshold > 1:
+            raise HTTPException(status_code=400, detail='Threshold must be between 0 and 1')
+
+
+def _load_threshold_overrides() -> dict[str, float]:
+    if not THRESHOLD_OVERRIDES_PATH.exists():
+        return {}
+    try:
+        with open(THRESHOLD_OVERRIDES_PATH, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+        raw = payload.get('overrides', payload)
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key): float(value)
+            for key, value in raw.items()
+            if key in {'autoencoder', 'lstm', 'snn'}
+        }
+    except Exception as error:
+        logger.warning(f"Failed to read threshold overrides: {error}")
+        return {}
+
+
+def apply_saved_threshold_overrides() -> dict[str, float]:
+    """Apply saved threshold overrides to in-memory model config at startup."""
+    overrides = _load_threshold_overrides()
+    applied: dict[str, float] = {}
+    for model_type, override in overrides.items():
+        if model_type in MODEL_CONFIGS:
+            MODEL_CONFIGS[model_type]['threshold'] = float(override)
+            applied[model_type] = float(override)
+    if applied:
+        logger.info(f"Applied threshold overrides: {applied}")
+    return applied
+
+
+def _persist_threshold_overrides(overrides: dict[str, float]) -> None:
+    THRESHOLD_OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        'updated_at': datetime.utcnow().isoformat(),
+        'overrides': overrides,
+    }
+    with open(THRESHOLD_OVERRIDES_PATH, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2)
+
+
+@router.post('/threshold')
+async def update_model_threshold(
+    payload: ThresholdUpdateRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    model_type = payload.model_type.strip().lower()
+    if model_type not in {'autoencoder', 'lstm', 'snn'}:
+        raise HTTPException(status_code=400, detail='model_type must be one of: autoencoder, lstm, snn')
+
+    threshold_value = float(payload.threshold)
+    _validate_threshold(model_type, threshold_value)
+
+    if model_type not in MODEL_CONFIGS:
+        raise HTTPException(status_code=400, detail=f"Model '{model_type}' is not loaded")
+
+    previous_threshold = float(MODEL_CONFIGS[model_type]['threshold'])
+    MODEL_CONFIGS[model_type]['threshold'] = threshold_value
+    persisted = False
+
+    if payload.persist:
+        overrides = _load_threshold_overrides()
+        overrides[model_type] = threshold_value
+        _persist_threshold_overrides(overrides)
+        persisted = True
+
+    actor = _resolve_actor(authorization)
+    audit_logged = _write_threshold_audit(
+        model_type=model_type,
+        previous_threshold=previous_threshold,
+        new_threshold=threshold_value,
+        persisted=persisted,
+        actor=actor,
+        reason=payload.reason,
+    )
+
+    return JSONResponse({
+        'success': True,
+        'model_type': model_type,
+        'previous_threshold': previous_threshold,
+        'threshold': threshold_value,
+        'persisted': persisted,
+        'audit_logged': audit_logged,
+        'updated_by': actor,
+    })
 
 @router.post("/process")
 async def process_batch(
@@ -36,6 +199,9 @@ async def process_batch(
     """
     batch_id = f"batch_{model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     try:
+        if not processor.db or not processor.db.connected:
+            raise HTTPException(status_code=503, detail='MongoDB must be connected (mongodb-only persistence mode)')
+
         logger.info("=" * 60)
         logger.info(f"Batch processing request: model={model_type}, custom_threshold={threshold}")
         
@@ -172,28 +338,10 @@ async def process_batch(
             'threshold': float(effective_threshold)
         }
         
-        # Save to MongoDB (batch summary and fraud results)
+        # Save to MongoDB (batch summary and transaction results)
         mongo_saved = processor.save_to_mongodb(results_df, batch_id, model_type, stats)
-        
-        # Save results to JSON
-        json_path = RESULTS_DIR / f"{batch_id}_results.json"
-        results_data = {
-            'batch_id': batch_id,
-            'model_type': model_type,
-            'timestamp': datetime.now().isoformat(),
-            'statistics': stats,
-            'results': results_df.to_dict('records')
-        }
-        
-        with open(json_path, 'w') as f:
-            json.dump(results_data, f, indent=2, default=str)
-        
-        # Save results to CSV
-        csv_path = RESULTS_DIR / f"{batch_id}_results.csv"
-        results_df.to_csv(csv_path, index=False)
-        
-        # Generate PDF report
-        pdf_path = processor.generate_pdf_report(results_df, batch_id, model_type, stats)
+        if not mongo_saved:
+            raise HTTPException(status_code=500, detail='Failed to persist batch results to MongoDB')
         
         logger.info(f"✓ Batch processing complete: {batch_id}")
         processor.save_processing_log(
@@ -204,20 +352,20 @@ async def process_batch(
             details={
                 'statistics': stats,
                 'mongodb_saved': bool(mongo_saved),
-                'json_path': str(json_path),
-                'csv_path': str(csv_path),
-                'pdf_path': str(pdf_path) if pdf_path else None,
+                'storage_mode': 'mongodb_only',
             }
         )
+
+        download_base = f"/batch/download/{batch_id}"
         
         return JSONResponse({
             'success': True,
             'batch_id': batch_id,
             'statistics': stats,
             'files': {
-                'json': str(json_path),
-                'csv': str(csv_path),
-                'pdf': str(pdf_path) if pdf_path else None
+                'json': f"{download_base}?format=json",
+                'csv': f"{download_base}?format=csv",
+                'pdf': f"{download_base}?format=pdf",
             },
             'mongodb_saved': mongo_saved,
             'results': results_df.to_dict('records'),  # All results
@@ -240,58 +388,81 @@ async def process_batch(
 
 @router.get("/download/{batch_id}")
 async def download_report(batch_id: str, format: str = "pdf"):
-    """Download batch report in specified format"""
+    """Download batch report in specified format from MongoDB-backed payload."""
     try:
-        if format == "pdf":
-            file_path = RESULTS_DIR / f"{batch_id}_report.pdf"
-            media_type = "application/pdf"
-        elif format == "csv":
-            file_path = RESULTS_DIR / f"{batch_id}_results.csv"
-            media_type = "text/csv"
-        elif format == "json":
-            file_path = RESULTS_DIR / f"{batch_id}_results.json"
-            media_type = "application/json"
-        else:
+        if format not in {"pdf", "csv", "json"}:
             raise HTTPException(status_code=400, detail="Invalid format")
-        
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type,
-            filename=file_path.name
-        )
+
+        data, _ = _load_batch_result_payload(batch_id=batch_id)
+        results = data.get('results', [])
+        model_type = str(data.get('model_type', 'unknown'))
+
+        if format == 'json':
+            payload = json.dumps(data, indent=2, default=str)
+            headers = {'Content-Disposition': f'attachment; filename={batch_id}_results.json'}
+            return Response(content=payload, media_type='application/json', headers=headers)
+
+        if format == 'csv':
+            df = pd.DataFrame(results)
+            csv_content = df.to_csv(index=False)
+            headers = {'Content-Disposition': f'attachment; filename={batch_id}_results.csv'}
+            return Response(content=csv_content, media_type='text/csv', headers=headers)
+
+        # format == 'pdf': generate on-demand PDF in memory (no local file persistence)
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        pdf.setTitle(f"{batch_id}_report")
+        pdf.setFont('Helvetica-Bold', 14)
+        pdf.drawString(40, 760, f"NeuroDetect Batch Report - {model_type.upper()}")
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(40, 742, f"Batch ID: {batch_id}")
+        pdf.drawString(40, 728, f"Generated: {datetime.now().isoformat()}")
+
+        stats = data.get('statistics', {}) or {}
+        y = 705
+        for key in ['total', 'fraud_count', 'legitimate_count', 'fraud_percentage', 'avg_fraud_score', 'max_fraud_score', 'threshold']:
+            if key in stats:
+                pdf.drawString(40, y, f"{key}: {stats.get(key)}")
+                y -= 14
+
+        pdf.drawString(40, y - 8, f"Transactions in report: {len(results)}")
+        pdf.showPage()
+        pdf.save()
+        buffer.seek(0)
+
+        headers = {'Content-Disposition': f'attachment; filename={batch_id}_report.pdf'}
+        return StreamingResponse(buffer, media_type='application/pdf', headers=headers)
         
     except Exception as e:
         logger.error(f"Download error: {e}")
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/history")
 async def get_batch_history():
-    """Get history of batch processing jobs"""
+    """Get history of batch processing jobs from MongoDB."""
     try:
-        results = []
-        
-        # Get all result JSON files
-        for json_file in RESULTS_DIR.glob("batch_*_results.json"):
-            with open(json_file, 'r') as f:
-                data = json.load(f)
-                results.append({
-                    'batch_id': data['batch_id'],
-                    'model_type': data['model_type'],
-                    'timestamp': data['timestamp'],
-                    'statistics': data['statistics']
-                })
-        
-        # Sort by timestamp (newest first)
-        results.sort(key=lambda x: x['timestamp'], reverse=True)
-        
-        return JSONResponse({'history': results})
+        if not processor.db or not processor.db.connected:
+            raise HTTPException(status_code=503, detail="MongoDB is not connected")
+
+        cursor = processor.db.db['batch_results'].find({}, {'_id': 0}).sort('timestamp', -1)
+        history = []
+        for row in list(cursor):
+            history.append({
+                'batch_id': row.get('batch_id'),
+                'model_type': row.get('model_type'),
+                'timestamp': row.get('processed_at') or row.get('timestamp'),
+                'statistics': row.get('statistics', {}),
+            })
+
+        return JSONResponse({'history': _json_safe(history), 'source': 'mongodb:batch_results'})
         
     except Exception as e:
         logger.error(f"History retrieval error: {e}")
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 

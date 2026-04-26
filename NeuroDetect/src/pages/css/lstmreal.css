@@ -32,6 +32,7 @@
   --gradient-primary: linear-gradient(135deg, var(--primary), var(--purple));
   --gradient-danger: linear-gradient(135deg, var(--danger), var(--pink));
   --gradient-success: linear-gradient(135deg, var(--success), var(--cyan));
+  --surface-overlay: rgba(30, 30, 63, 0.8);
 }
 
 * {
@@ -46,6 +47,10 @@ body {
   color: var(--text-primary);
   overflow-x: hidden;
   font-size: 14px;
+}
+
+body[data-theme='light'] {
+  --surface-overlay: rgba(255, 255, 255, 0.88);
 }
 
 /* Dashboard Layout */
@@ -233,7 +238,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(30, 30, 63, 0.8);
+  background: var(--surface-overlay);
   backdrop-filter: blur(10px);
 }
 
@@ -347,7 +352,7 @@ body {
 }
 
 .performance-card {
-  background: linear-gradient(145deg, var(--bg-card), rgba(30, 30, 63, 0.8));
+  background: linear-gradient(145deg, var(--bg-card), var(--surface-overlay));
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
@@ -605,7 +610,7 @@ body {
 }
 
 .content-card {
-  background: linear-gradient(145deg, var(--bg-card), rgba(30, 30, 63, 0.8));
+  background: linear-gradient(145deg, var(--bg-card), var(--surface-overlay));
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
@@ -1221,7 +1226,7 @@ body {
 .fraud-footer {
   padding: 20px 32px;
   border-top: 1px solid var(--border-color);
-  background: rgba(30, 30, 63, 0.8);
+  background: var(--surface-overlay);
   backdrop-filter: blur(10px);
 }
 

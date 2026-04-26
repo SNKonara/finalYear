@@ -46,6 +46,7 @@ const inputBase = {
 } satisfies React.CSSProperties;
 
 const roles: UserRole[] = ['admin', 'analyst', 'viewer'];
+const ORGANIZATION_EMAIL_PATTERN = /^[^\s@]+@neurodetect\.ai$/i;
 
 const roleStyles: Record<UserRole, React.CSSProperties> = {
   admin: { background: '#f4f0ff', color: '#6d28d9', border: '1px solid #e6dbff' },
@@ -138,6 +139,9 @@ const UserManagement: React.FC = () => {
     e.preventDefault();
     const token = getSessionToken();
     if (!token) return setError('Session expired');
+    if (!ORGANIZATION_EMAIL_PATTERN.test(formData.email.trim())) {
+      return setError('Email must use the format xxx@neurodetect.ai');
+    }
     try {
       setError(null);
       await createUser(token, formData);
@@ -379,7 +383,19 @@ const UserManagement: React.FC = () => {
             <h2 style={{ margin: '0 0 18px', fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>Add New User</h2>
             <form onSubmit={handleAddUser} style={{ display: 'grid', gap: 14 }}>
               <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Name</label><input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={inputBase} required /></div>
-              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Email</label><input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} style={inputBase} required /></div>
+              <div>
+                <label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  style={inputBase}
+                  required
+                  pattern="^[^\s@]+@neurodetect\.ai$"
+                  placeholder="name@neurodetect.ai"
+                />
+                <div style={{ marginTop: 6, fontSize: '.8rem', color: '#64748b' }}>Only organization emails ending with @neurodetect.ai are allowed.</div>
+              </div>
               <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Password</label><input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} style={inputBase} required minLength={6} /></div>
               <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Role</label><select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })} style={inputBase}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></div>
               <div style={{ display: 'flex', gap: 12, paddingTop: 6 }}>

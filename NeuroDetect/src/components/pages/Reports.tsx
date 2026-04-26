@@ -6,11 +6,9 @@ import {
   Clock3,
   Download,
   FileText,
-  Mail,
   MoreVertical,
   Search,
   Share2,
-  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getRoleSidebarItems } from '../layout/roleNavigation';
@@ -149,6 +147,15 @@ const Reports: React.FC = () => {
   const [selectedReportId, setSelectedReportId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'lstm' | 'autoencoder' | 'snn' | 'realtime'>('all');
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1440,
+  );
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     const loadReports = async () => {
@@ -223,6 +230,9 @@ const Reports: React.FC = () => {
   const muted = isDarkTheme ? '#94a3b8' : '#7c8599';
   const text = isDarkTheme ? currentTheme.textPrimary : '#202330';
   const textSoft = isDarkTheme ? currentTheme.textSecondary : '#6b7280';
+  const threePaneLayout = viewportWidth >= 1360;
+  const shellColumns = threePaneLayout ? '220px minmax(320px, 360px) minmax(0, 1fr)' : '220px minmax(0, 1fr)';
+  const trendAndInsightsColumns = '1fr';
 
   const actionButtonStyle: React.CSSProperties = {
     height: '40px',
@@ -240,9 +250,9 @@ const Reports: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: currentTheme.bgPrimary, color: text }}>
-      <div style={{ width: '100%', padding: '0 24px 32px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(320px, 1fr) minmax(0, 2.15fr)', gap: 0, borderLeft: `1px solid ${border}`, borderRight: `1px solid ${border}`, background: shell, minHeight: 'calc(100vh - 110px)' }}>
-          <aside style={{ borderRight: `1px solid ${border}`, minHeight: 'calc(100vh - 110px)', padding: '22px 0', background: isDarkTheme ? '#0f172a' : '#fbfbfe' }}>
+      <div style={{ width: '100%', padding: '0 20px 32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: shellColumns, gap: '14px', minHeight: 'calc(100vh - 110px)' }}>
+          <aside style={{ border: `1px solid ${border}`, borderRadius: '20px', minHeight: 'calc(100vh - 110px)', padding: '22px 0', background: isDarkTheme ? '#0f172a' : '#fbfbfe' }}>
             <nav style={{ display: 'grid', gap: '8px', padding: '0 16px' }}>
               {navLinks.map(({ label, to }) => (
                 <Link
@@ -267,7 +277,8 @@ const Reports: React.FC = () => {
             </div>
           </aside>
 
-          <section style={{ borderRight: `1px solid ${border}`, background: isDarkTheme ? '#111827' : '#fbfbfe' }}>
+          {threePaneLayout && (
+          <section style={{ border: `1px solid ${border}`, borderRadius: '20px', overflow: 'hidden', background: isDarkTheme ? '#111827' : '#fbfbfe' }}>
             <div style={{ padding: '22px 20px', borderBottom: `1px solid ${border}` }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
                 <h2 style={{ margin: 0, fontSize: '2rem', fontWeight: 800 }}>Library</h2>
@@ -353,6 +364,8 @@ const Reports: React.FC = () => {
                         background: shell,
                         boxShadow: active ? '0 12px 30px rgba(139, 92, 246, 0.16)' : 'none',
                         cursor: 'pointer',
+                        minWidth: 0,
+                        overflow: 'hidden',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
@@ -364,10 +377,21 @@ const Reports: React.FC = () => {
                           {formatDate(report.generated_at_iso)}
                         </span>
                       </div>
-                      <div style={{ fontSize: '1.02rem', fontWeight: 800, color: text, lineHeight: 1.45, marginBottom: '10px' }}>
+                      <div
+                        style={{
+                          fontSize: '1.02rem',
+                          fontWeight: 800,
+                          color: text,
+                          lineHeight: 1.45,
+                          marginBottom: '10px',
+                          whiteSpace: 'normal',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }}
+                      >
                         {report.title || report.sections?.header?.report_title || report.report_id}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', minWidth: 0 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: textSoft, fontSize: '.82rem' }}>
                           <FileText size={13} />
                           {formatCompactMoney((report.sections?.summary_cards?.total_amount || report.sections?.summary_cards?.fraud_amount || 0) / 1000)}
@@ -380,12 +404,32 @@ const Reports: React.FC = () => {
               </div>
             </div>
           </section>
+          )}
 
-          <main style={{ background: shell, padding: '26px 28px 30px' }}>
+          <main style={{ border: `1px solid ${border}`, borderRadius: '20px', background: shell, padding: '26px 28px 30px' }}>
             {!selectedReport ? (
               <div style={{ color: muted }}>Select a report to preview it.</div>
             ) : (
               <>
+                {!threePaneLayout && (
+                  <div style={{ marginBottom: '18px', padding: '12px', borderRadius: '14px', border: `1px solid ${border}`, background: soft }}>
+                    <label style={{ display: 'block', color: muted, fontSize: '.76rem', fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: '8px' }}>
+                      Select Report
+                    </label>
+                    <select
+                      value={selectedReportId}
+                      onChange={(e) => setSelectedReportId(e.target.value)}
+                      style={{ width: '100%', height: '40px', borderRadius: '10px', border: `1px solid ${border}`, background: shell, color: text, padding: '0 10px' }}
+                    >
+                      {filteredReports.map((report) => (
+                        <option key={report.report_id} value={report.report_id}>
+                          {report.title || report.report_id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '18px', marginBottom: '20px', flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
@@ -396,7 +440,7 @@ const Reports: React.FC = () => {
                         Ref: {sections?.header?.report_id || selectedReport.report_id}
                       </span>
                     </div>
-                    <h1 style={{ margin: '0 0 10px', fontSize: '3rem', lineHeight: 1.05, fontWeight: 900, maxWidth: '620px' }}>
+                    <h1 style={{ margin: '0 0 10px', fontSize: viewportWidth >= 1600 ? '2.5rem' : '2.1rem', lineHeight: 1.15, fontWeight: 900, maxWidth: '640px' }}>
                       {selectedReport.title || sections?.header?.report_title || 'Monthly Fraud Summary'}
                     </h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', color: textSoft, fontSize: '.92rem' }}>
@@ -468,7 +512,7 @@ const Reports: React.FC = () => {
                   ))}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) 260px', gap: '18px', marginBottom: '18px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: trendAndInsightsColumns, gap: '22px', marginBottom: '22px' }}>
                   <div style={{ border: `1px solid ${border}`, borderRadius: '20px', background: shell, overflow: 'hidden' }}>
                     <div style={{ padding: '18px 20px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
                       <div>
@@ -489,53 +533,6 @@ const Reports: React.FC = () => {
                       </div>
                     </div>
                   </div>
-
-                  <div style={{ display: 'grid', gap: '18px' }}>
-                    <div style={{ border: `1px solid ${border}`, borderRadius: '20px', background: isDarkTheme ? 'linear-gradient(180deg, rgba(109,40,217,.2), rgba(124,58,237,.08))' : 'linear-gradient(180deg, #f5efff, #fbf8ff)', padding: '18px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, marginBottom: '12px' }}>
-                        <ShieldCheck size={16} color="#7c3aed" />
-                        Intelligence Insight
-                      </div>
-                      <p style={{ margin: 0, color: textSoft, lineHeight: 1.75, fontSize: '.92rem' }}>
-                        {sections?.analyst_comments_observations || 'The selected report highlights current fraud hotspots and model confidence trends from MongoDB-backed summaries.'}
-                      </p>
-                    </div>
-
-                    <div style={{ border: `1px solid ${border}`, borderRadius: '20px', background: shell, padding: '18px' }}>
-                      <div style={{ fontWeight: 800, marginBottom: '14px' }}>Report Configuration</div>
-                      <div style={{ display: 'grid', gap: '12px', color: textSoft, fontSize: '.9rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                          <span>Threshold</span>
-                          <strong style={{ color: text }}>{Number(selectedReport.summary?.fraud_rate_percent ?? 0).toFixed(4)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                          <span>Feature Set</span>
-                          <strong style={{ color: text }}>{performance?.architecture || selectedReport.model?.type || '-'}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                          <span>Excluded Entities</span>
-                          <strong style={{ color: text }}>Whitelisted Orgs</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                          <span>Lookback</span>
-                          <strong style={{ color: text }}>{(selectedReport as any)?.period?.granularity === 'hour' ? 'Hourly Window' : 'Rolling 30 Days'}</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ borderRadius: '20px', background: isDarkTheme ? '#231942' : '#231942', color: '#ffffff', padding: '20px' }}>
-                      <div style={{ width: '44px', height: '44px', borderRadius: '999px', background: 'rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px' }}>
-                        <Mail size={18} />
-                      </div>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px' }}>Automate This Report</div>
-                      <p style={{ margin: '0 0 16px', color: 'rgba(255,255,255,.78)', lineHeight: 1.7, fontSize: '.9rem' }}>
-                        Receive this summary in your inbox weekly every Monday at 8:00 AM UTC.
-                      </p>
-                      <button type="button" style={{ height: '40px', padding: '0 16px', borderRadius: '12px', border: 'none', background: '#ffffff', color: '#231942', fontWeight: 800, cursor: 'pointer' }}>
-                        Enable Weekly Trigger
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
                 <div style={{ border: `1px solid ${border}`, borderRadius: '20px', background: shell, overflow: 'hidden' }}>
@@ -543,20 +540,42 @@ const Reports: React.FC = () => {
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: '4px' }}>Detailed Audit Breakdown</div>
                     <div style={{ color: textSoft, fontSize: '.92rem' }}>First 5 high-impact detections included in this report</div>
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
+                  <div style={{ overflowX: 'auto', maxHeight: '420px', overflowY: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ background: soft }}>
                         <tr>
                           {['Entity ID', 'Risk Score', 'Vector', 'Amount', 'SLA Status'].map((label) => (
-                            <th key={label} style={{ textAlign: 'left', padding: '14px 18px', fontSize: '.78rem', color: muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                            <th
+                              key={label}
+                              style={{
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: 2,
+                                textAlign: 'left',
+                                padding: '14px 18px',
+                                fontSize: '.78rem',
+                                color: muted,
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: '.06em',
+                                background: soft,
+                                borderBottom: `1px solid ${border}`,
+                              }}
+                            >
                               {label}
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {detailRows.map((row) => (
-                          <tr key={row.id} style={{ borderTop: `1px solid ${border}` }}>
+                        {detailRows.map((row, idx) => (
+                          <tr
+                            key={row.id}
+                            style={{
+                              borderTop: `1px solid ${border}`,
+                              background: idx % 2 === 0 ? (isDarkTheme ? 'rgba(255,255,255,0.01)' : '#ffffff') : (isDarkTheme ? 'rgba(148,163,184,0.06)' : '#f8fafc'),
+                            }}
+                          >
                             <td style={{ padding: '18px', color: '#7c3aed', fontWeight: 800 }}>{row.id}</td>
                             <td style={{ padding: '18px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

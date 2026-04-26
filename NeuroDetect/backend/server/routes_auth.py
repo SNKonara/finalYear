@@ -5,12 +5,13 @@ Routes: /auth/login  /auth/me  /auth/logout
 """
 import hashlib
 import logging
+import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -18,6 +19,14 @@ from shared_state import AUTH_USERS_COLLECTION, AUTH_SESSIONS_COLLECTION, VALID_
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+AUTH_LOGIN_ATTEMPTS_COLLECTION = 'auth_login_attempts'
+AUTH_SESSION_IDLE_TIMEOUT_MINUTES = int(os.getenv('AUTH_SESSION_IDLE_TIMEOUT_MINUTES', '120'))
+AUTH_SESSION_MAX_AGE_MINUTES = int(os.getenv('AUTH_SESSION_MAX_AGE_MINUTES', '480'))
+AUTH_LOGIN_MAX_ATTEMPTS = int(os.getenv('AUTH_LOGIN_MAX_ATTEMPTS', '5'))
+AUTH_LOGIN_WINDOW_MINUTES = int(os.getenv('AUTH_LOGIN_WINDOW_MINUTES', '15'))
+AUTH_LOGIN_BLOCK_MINUTES = int(os.getenv('AUTH_LOGIN_BLOCK_MINUTES', '15'))
+ORGANIZATION_EMAIL_DOMAIN = 'neurodetect.ai'
 
 
 def _get_processor():
@@ -59,6 +68,15 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
+def _is_valid_organization_email(email: str) -> bool:
+    normalized = email.strip().lower()
+    if '@' not in normalized:
+        return False
+
+    local_part, domain = normalized.rsplit('@', 1)
+    return bool(local_part) and domain == ORGANIZATION_EMAIL_DOMAIN
+
+
 def _ensure_auth_collections() -> None:
     if not _get_processor().db or not _get_processor().db.connected:
         logger.warning("MongoDB not connected - authentication endpoints unavailable")
@@ -66,10 +84,14 @@ def _ensure_auth_collections() -> None:
 
     users_collection = _get_processor().db.db[AUTH_USERS_COLLECTION]
     sessions_collection = _get_processor().db.db[AUTH_SESSIONS_COLLECTION]
+    login_attempts = _get_processor().db.db[AUTH_LOGIN_ATTEMPTS_COLLECTION]
     users_collection.create_index('email', unique=True)
     users_collection.create_index('role')
     sessions_collection.create_index('token_hash', unique=True)
     sessions_collection.create_index('user_id')
+    sessions_collection.create_index('expires_at_dt')
+    login_attempts.create_index('throttle_key', unique=True)
+    login_attempts.create_index('blocked_until_dt')
 
 
 def _seed_default_auth_users() -> None:
@@ -138,6 +160,117 @@ def _extract_bearer_token(authorization: Optional[str]) -> str:
     return parts[1].strip()
 
 
+def _parse_session_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+    if isinstance(value, str):
+        candidate = value.replace('Z', '+00:00')
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed
+        except Exception:
+            return None
+    return None
+
+
+def _session_has_expired(session: dict[str, Any], now: datetime) -> bool:
+    absolute_expiry = _parse_session_datetime(session.get('expires_at_dt') or session.get('expires_at'))
+    if absolute_expiry and now >= absolute_expiry:
+        return True
+
+    last_seen = _parse_session_datetime(session.get('last_seen_at'))
+    if not last_seen:
+        last_seen = _parse_session_datetime(session.get('created_at'))
+    if not last_seen:
+        return False
+
+    idle_deadline = last_seen + timedelta(minutes=AUTH_SESSION_IDLE_TIMEOUT_MINUTES)
+    return now >= idle_deadline
+
+
+def _build_login_throttle_key(email: str, ip_address: str) -> str:
+    return f"{email}|{ip_address}"
+
+
+def _get_login_attempts_collection():
+    _require_auth_backend()
+    return _get_processor().db.db[AUTH_LOGIN_ATTEMPTS_COLLECTION]
+
+
+def _remaining_block_seconds(email: str, ip_address: str) -> int:
+    attempts_collection = _get_login_attempts_collection()
+    key = _build_login_throttle_key(email, ip_address)
+    doc = attempts_collection.find_one({'throttle_key': key})
+    if not doc:
+        return 0
+
+    now = datetime.utcnow()
+    blocked_until = _parse_session_datetime(doc.get('blocked_until_dt') or doc.get('blocked_until'))
+    if blocked_until and blocked_until > now:
+        return max(1, int((blocked_until - now).total_seconds()))
+
+    window_start = _parse_session_datetime(doc.get('window_start_dt') or doc.get('window_start'))
+    if window_start and now - window_start > timedelta(minutes=AUTH_LOGIN_WINDOW_MINUTES):
+        attempts_collection.delete_one({'throttle_key': key})
+        return 0
+
+    return 0
+
+
+def _register_failed_login(email: str, ip_address: str) -> None:
+    attempts_collection = _get_login_attempts_collection()
+    key = _build_login_throttle_key(email, ip_address)
+    now = datetime.utcnow()
+    window_duration = timedelta(minutes=AUTH_LOGIN_WINDOW_MINUTES)
+
+    doc = attempts_collection.find_one({'throttle_key': key})
+    if not doc:
+        attempts_collection.insert_one({
+            'throttle_key': key,
+            'email': email,
+            'ip_address': ip_address,
+            'failed_count': 1,
+            'window_start_dt': now,
+            'updated_at': now,
+        })
+        return
+
+    window_start = _parse_session_datetime(doc.get('window_start_dt') or doc.get('window_start'))
+    if not window_start or (now - window_start) > window_duration:
+        attempts_collection.update_one(
+            {'throttle_key': key},
+            {
+                '$set': {
+                    'failed_count': 1,
+                    'window_start_dt': now,
+                    'blocked_until_dt': None,
+                    'updated_at': now,
+                }
+            },
+        )
+        return
+
+    failed_count = int(doc.get('failed_count', 0)) + 1
+    update_payload: dict[str, Any] = {
+        'failed_count': failed_count,
+        'updated_at': now,
+    }
+
+    if failed_count >= AUTH_LOGIN_MAX_ATTEMPTS:
+        update_payload['blocked_until_dt'] = now + timedelta(minutes=AUTH_LOGIN_BLOCK_MINUTES)
+
+    attempts_collection.update_one({'throttle_key': key}, {'$set': update_payload})
+
+
+def _clear_failed_logins(email: str, ip_address: str) -> None:
+    attempts_collection = _get_login_attempts_collection()
+    attempts_collection.delete_one({'throttle_key': _build_login_throttle_key(email, ip_address)})
+
+
 def _resolve_current_user(authorization: Optional[str]) -> dict[str, Any]:
     users_collection, sessions_collection = _require_auth_backend()
     token = _extract_bearer_token(authorization)
@@ -146,9 +279,17 @@ def _resolve_current_user(authorization: Optional[str]) -> dict[str, Any]:
     if not session:
         raise HTTPException(status_code=401, detail='Invalid or expired session')
 
+    now = datetime.utcnow()
+    if _session_has_expired(session, now):
+        sessions_collection.update_one(
+            {'_id': session['_id']},
+            {'$set': {'is_active': False, 'expired_at': now}},
+        )
+        raise HTTPException(status_code=401, detail='Session expired')
+
     sessions_collection.update_one(
         {'_id': session['_id']},
-        {'$set': {'last_seen_at': datetime.utcnow()}},
+        {'$set': {'last_seen_at': now}},
     )
 
     user = users_collection.find_one({'_id': session['user_id']})
@@ -167,21 +308,37 @@ def _require_admin_user(authorization: Optional[str]) -> dict[str, Any]:
 
 
 @router.post("/login")
-async def auth_login(payload: AuthLoginRequest):
+async def auth_login(payload: AuthLoginRequest, request: Request):
     users_collection, sessions_collection = _require_auth_backend()
 
     normalized_email = payload.email.strip().lower()
+    if not _is_valid_organization_email(normalized_email):
+        raise HTTPException(status_code=400, detail='Email must use the format xxx@neurodetect.ai')
+
+    client_ip = request.client.host if request.client and request.client.host else 'unknown'
+    blocked_seconds = _remaining_block_seconds(normalized_email, client_ip)
+    if blocked_seconds > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f'Too many failed login attempts. Try again in {blocked_seconds} seconds.',
+        )
+
     user = users_collection.find_one({'email': normalized_email})
     if not user or not _verify_password(payload.password, user.get('password_hash', '')):
+        _register_failed_login(normalized_email, client_ip)
         raise HTTPException(status_code=401, detail='Invalid email or password')
 
+    _clear_failed_logins(normalized_email, client_ip)
+
     token = secrets.token_urlsafe(48)
+    now = datetime.utcnow()
     sessions_collection.insert_one({
         'user_id': user['_id'],
         'token_hash': _token_hash(token),
         'is_active': True,
-        'created_at': datetime.utcnow(),
-        'last_seen_at': datetime.utcnow(),
+        'created_at': now,
+        'last_seen_at': now,
+        'expires_at_dt': now + timedelta(minutes=AUTH_SESSION_MAX_AGE_MINUTES),
     })
 
     return JSONResponse({
@@ -256,8 +413,8 @@ async def auth_create_user(payload: UserCreateRequest, authorization: Optional[s
         raise HTTPException(status_code=400, detail='Name is required')
     if not email:
         raise HTTPException(status_code=400, detail='Email is required')
-    if '@' not in email:
-        raise HTTPException(status_code=400, detail='Valid email is required')
+    if not _is_valid_organization_email(email):
+        raise HTTPException(status_code=400, detail='Email must use the format xxx@neurodetect.ai')
     if len(password) < 6:
         raise HTTPException(status_code=400, detail='Password must be at least 6 characters')
     if requested_role not in VALID_ROLES:

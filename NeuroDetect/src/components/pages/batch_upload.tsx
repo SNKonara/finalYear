@@ -26,7 +26,6 @@ import {
   ChevronRight,
   Sparkles,
   GanttChart,
-  UploadCloud,
   FileUp,
   Trash2,
   EyeOff,
@@ -115,6 +114,7 @@ const BatchProcessing: React.FC = () => {
   // Threshold tuning
   const [threshold, setThreshold] = useState<number>(0.5);
   const [customThreshold, setCustomThreshold] = useState<boolean>(false);
+  const [persistThresholdOverride, setPersistThresholdOverride] = useState<boolean>(false);
 
   // UI state
   const [activeTab, setActiveTab] = useState<'upload' | 'results' | 'tuning'>('upload');
@@ -139,25 +139,25 @@ const BatchProcessing: React.FC = () => {
     {
       id: 'autoencoder',
       name: 'Autoencoder',
-      icon: <Layers className="model-icon" />,
-      description: 'Reconstruction-based anomaly detection with 128-64-16 architecture',
-      features: ['Reconstruction error', '24 features', 'Dense layers (128→64→16)'],
+      icon: <Layers className="batch-model-icon" />,
+      description: 'Use when you need quick baseline anomaly screening on large mixed transaction batches.',
+      features: ['Best for broad anomaly spotting', 'Fast first-pass triage', 'No sequence history required'],
       color: '#8b5cf6'
     },
     {
       id: 'lstm',
       name: 'LSTM with Attention',
-      icon: <GanttChart className="model-icon" />,
-      description: 'Bidirectional LSTM with attention mechanism for sequence analysis',
-      features: ['256 hidden units', 'Attention mechanism', '99.5% accuracy'],
+      icon: <GanttChart className="batch-model-icon" />,
+      description: 'Use when temporal behavior matters and you want strong accuracy from transaction sequence patterns.',
+      features: ['Best for time-series fraud signals', 'Captures evolving behavior over time', 'Strong for high-volume production runs'],
       color: '#3b82f6'
     },
     {
       id: 'snn',
       name: 'Spiking Neural Network',
-      icon: <Sparkles className="model-icon" />,
-      description: 'Spiking neural network with ... activation',
-      features: ['Self-normalizing', 'Robust training', 'Deep architecture'],
+      icon: <Sparkles className="batch-model-icon" />,
+      description: 'Use when you need customer-personalized detection and sensitivity to individual behavior shifts.',
+      features: ['Best for personalized customer risk', 'Adapts to subtle pattern changes', 'Useful for targeted investigation workflows'],
       color: '#10b981'
     }
   ];
@@ -310,7 +310,7 @@ const BatchProcessing: React.FC = () => {
   };
 
   // Process file
-  const processFile = async () => {
+  const processFile = async (options?: { forceCustomThreshold?: boolean }) => {
     if (!file || !modelInfo) return;
 
     setIsProcessing(true);
@@ -318,12 +318,14 @@ const BatchProcessing: React.FC = () => {
     setProcessProgress(0);
     setResults([]);
 
+    const shouldUseCustomThreshold = options?.forceCustomThreshold ?? customThreshold;
+
     try {
       // Prepare form data
       const formData = new FormData();
       formData.append('file', file);
       formData.append('model_type', selectedModel);
-      if (customThreshold) {
+      if (shouldUseCustomThreshold) {
         formData.append('threshold', threshold.toString());
       }
 
@@ -398,6 +400,48 @@ const BatchProcessing: React.FC = () => {
       setIsProcessing(false);
       setProcessProgress(0);
     }
+  };
+
+  const persistThreshold = async (): Promise<boolean> => {
+    if (!persistThresholdOverride) {
+      return true;
+    }
+
+    try {
+      const response = await fetch('http://localhost:8000/batch/threshold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_type: selectedModel,
+          threshold,
+          persist: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || 'Failed to persist threshold override');
+      }
+
+      return true;
+    } catch (error: any) {
+      setProcessingError(error.message || 'Failed to persist threshold override');
+      return false;
+    }
+  };
+
+  const applyThresholdAndReprocess = async () => {
+    if (isProcessing || !file || !modelInfo) {
+      return;
+    }
+
+    setCustomThreshold(true);
+    const persistedOk = await persistThreshold();
+    if (!persistedOk) {
+      return;
+    }
+
+    await processFile({ forceCustomThreshold: true });
   };
 
   // Export results
@@ -477,6 +521,33 @@ const BatchProcessing: React.FC = () => {
                    (results.filter(r => r.fraud_prediction === 1).length || 1)
   };
 
+  const thresholdConfig = selectedModel === 'autoencoder'
+    ? {
+        min: 0,
+        max: Math.max(0.01, (modelInfo?.threshold || 0.0005) * 20),
+        step: 0.00001,
+        recommendations: [0.0002, 0.0005, 0.001],
+      }
+    : {
+        min: 0,
+        max: 1,
+        step: 0.001,
+        recommendations: [0.15, 0.35, 0.55],
+      };
+
+  const formatThreshold = (value: number) => (
+    selectedModel === 'autoencoder' ? value.toExponential(4) : value.toFixed(4)
+  );
+
+  const thresholdSamples = Array.from({ length: 20 }, (_, index) => {
+    const ratio = index / 19;
+    return thresholdConfig.min + ((thresholdConfig.max - thresholdConfig.min) * ratio);
+  });
+
+  const isFlaggedAtThreshold = (score: number, candidate: number) => (
+    selectedModel === 'autoencoder' ? score > candidate : score >= candidate
+  );
+
   // Toggle row expansion
   const toggleRow = (index: number) => {
     const newExpanded = new Set(expandedRows);
@@ -510,13 +581,6 @@ const BatchProcessing: React.FC = () => {
     <div className="batch-dashboard">
       {/* Sidebar */}
       <aside className="batch-sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <UploadCloud className="logo-icon" />
-            <span className="logo-text">NeuroDetect</span>
-          </div>
-        </div>
-
         <nav className="sidebar-nav">
           <button 
             className="nav-item"
@@ -578,30 +642,6 @@ const BatchProcessing: React.FC = () => {
 
       {/* Main Content */}
       <main className="batch-main">
-        {/* Top Bar */}
-        <header className="batch-topbar">
-          <div className="topbar-left">
-            <h1>Batch Fraud Detection</h1>
-            <p className="subtitle">Process multiple transactions through trained models</p>
-          </div>
-          
-          <div className="topbar-right">
-            <div className="model-selector">
-              {modelOptions.map(model => (
-                <button
-                  key={model.id}
-                  className={`model-btn ${selectedModel === model.id ? 'active' : ''}`}
-                  onClick={() => setSelectedModel(model.id)}
-                  style={{ '--model-color': model.color } as React.CSSProperties}
-                >
-                  {model.icon}
-                  <span>{model.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </header>
-
         {isLoadingModel && (
           <div className="processing-note" style={{ marginBottom: '12px' }}>
             <Info size={14} />
@@ -654,7 +694,27 @@ const BatchProcessing: React.FC = () => {
         )}
 
         {/* Content Area */}
-        <div className="content-area">
+        <div className="batch-content-area">
+          <div className="batch-page-header">
+            <div className="batch-page-header-text">
+              <h1>Batch Fraud Detection</h1>
+              <p className="batch-subtitle">Process multiple transactions through trained models</p>
+            </div>
+            <div className="batch-model-selector">
+              {modelOptions.map(model => (
+                <button
+                  key={model.id}
+                  className={`batch-model-btn ${selectedModel === model.id ? 'active' : ''}`}
+                  onClick={() => setSelectedModel(model.id)}
+                  style={{ '--model-color': model.color } as React.CSSProperties}
+                >
+                  {model.icon}
+                  <span>{model.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Upload Tab */}
           {activeTab === 'upload' && (
             <div className="upload-container">
@@ -786,7 +846,7 @@ const BatchProcessing: React.FC = () => {
                 {/* Process Button */}
                 <button
                   className={`process-btn ${isProcessing ? 'processing' : ''}`}
-                  onClick={processFile}
+                  onClick={() => void processFile()}
                   disabled={!file || !modelInfo || isProcessing}
                 >
                   {isProcessing ? (
@@ -1079,13 +1139,13 @@ const BatchProcessing: React.FC = () => {
                 <div className="threshold-control">
                   <label>
                     <span>Detection Threshold</span>
-                    <span className="threshold-value">{threshold.toExponential(4)}</span>
+                    <span className="threshold-value">{formatThreshold(threshold)}</span>
                   </label>
                   <input
                     type="range"
-                    min="0"
-                    max="1"
-                    step="0.001"
+                    min={thresholdConfig.min}
+                    max={thresholdConfig.max}
+                    step={thresholdConfig.step}
                     value={threshold}
                     onChange={(e) => setThreshold(parseFloat(e.target.value))}
                     className="threshold-slider"
@@ -1100,13 +1160,13 @@ const BatchProcessing: React.FC = () => {
                   <div className="stat-box">
                     <span className="stat-label">Fraud Detected</span>
                     <span className="stat-value">
-                      {results.filter(r => r.fraud_probability > threshold).length}
+                      {results.filter(r => isFlaggedAtThreshold(r.fraud_probability, threshold)).length}
                     </span>
                   </div>
                   <div className="stat-box">
                     <span className="stat-label">Fraud Rate</span>
                     <span className="stat-value">
-                      {((results.filter(r => r.fraud_probability > threshold).length / results.length) * 100).toFixed(2)}%
+                      {((results.filter(r => isFlaggedAtThreshold(r.fraud_probability, threshold)).length / results.length) * 100).toFixed(2)}%
                     </span>
                   </div>
                   <div className="stat-box">
@@ -1122,9 +1182,8 @@ const BatchProcessing: React.FC = () => {
               <div className="threshold-chart">
                 <h3>Threshold Impact Analysis</h3>
                 <div className="chart-container">
-                  {[...Array(20)].map((_, i) => {
-                    const thresh = i / 20;
-                    const fraudCount = results.filter(r => r.fraud_probability > thresh).length;
+                  {thresholdSamples.map((thresh, i) => {
+                    const fraudCount = results.filter(r => isFlaggedAtThreshold(r.fraud_probability, thresh)).length;
                     const height = (fraudCount / results.length) * 100;
                     return (
                       <div key={i} className="chart-bar-container">
@@ -1135,7 +1194,7 @@ const BatchProcessing: React.FC = () => {
                             backgroundColor: thresh <= threshold ? 'var(--primary)' : 'var(--bg-tertiary)'
                           }}
                         ></div>
-                        <span className="chart-label">{thresh.toFixed(2)}</span>
+                        <span className="chart-label">{formatThreshold(thresh)}</span>
                       </div>
                     );
                   })}
@@ -1151,11 +1210,11 @@ const BatchProcessing: React.FC = () => {
                       <Shield />
                     </div>
                     <div className="rec-content">
-                      <h4>Conservative (0.15)</h4>
+                      <h4>Conservative ({formatThreshold(thresholdConfig.recommendations[0])})</h4>
                       <p>Minimize false positives, catch only high-confidence fraud</p>
                       <button 
                         className="apply-btn"
-                        onClick={() => setThreshold(0.15)}
+                        onClick={() => setThreshold(thresholdConfig.recommendations[0])}
                       >
                         Apply
                       </button>
@@ -1166,11 +1225,11 @@ const BatchProcessing: React.FC = () => {
                       <Target />
                     </div>
                     <div className="rec-content">
-                      <h4>Balanced (0.35)</h4>
+                      <h4>Balanced ({formatThreshold(thresholdConfig.recommendations[1])})</h4>
                       <p>Balance between precision and recall</p>
                       <button 
                         className="apply-btn"
-                        onClick={() => setThreshold(0.35)}
+                        onClick={() => setThreshold(thresholdConfig.recommendations[1])}
                       >
                         Apply
                       </button>
@@ -1181,11 +1240,11 @@ const BatchProcessing: React.FC = () => {
                       <Activity />
                     </div>
                     <div className="rec-content">
-                      <h4>Aggressive (0.55)</h4>
+                      <h4>Aggressive ({formatThreshold(thresholdConfig.recommendations[2])})</h4>
                       <p>Maximize fraud detection, accept more false positives</p>
                       <button 
                         className="apply-btn"
-                        onClick={() => setThreshold(0.55)}
+                        onClick={() => setThreshold(thresholdConfig.recommendations[2])}
                       >
                         Apply
                       </button>
@@ -1194,9 +1253,23 @@ const BatchProcessing: React.FC = () => {
                 </div>
               </div>
 
+              <label className="checkbox-label" style={{ marginBottom: '16px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  className="checkbox-input"
+                  checked={persistThresholdOverride}
+                  onChange={(event) => setPersistThresholdOverride(event.target.checked)}
+                />
+                <span className="checkbox-text">Persist this threshold as default for future runs</span>
+              </label>
+
               {/* Apply Threshold Button */}
-              <button className="apply-threshold-btn">
-                Apply New Threshold & Reprocess
+              <button
+                className="apply-threshold-btn"
+                onClick={applyThresholdAndReprocess}
+                disabled={isProcessing || !file}
+              >
+                {isProcessing ? 'Reprocessing...' : 'Apply New Threshold & Reprocess'}
               </button>
             </div>
           )}

@@ -47,7 +47,9 @@ class MongoDB:
             'immediate_alerts': 'immediate_alerts',
             'hourly_reports': 'hourly_reports',
             'model_reports': 'model_reports',
-            'resolved_frauds': 'resolved_frauds'
+            'resolved_frauds': 'resolved_frauds',
+            'threshold_audit_logs': 'threshold_audit_logs',
+            'auth_login_attempts': 'auth_login_attempts'
         }
     
     def connect(self):
@@ -115,6 +117,13 @@ class MongoDB:
             self.db[self.COLLECTIONS['resolved_frauds']].create_index('transaction_id')
             self.db[self.COLLECTIONS['resolved_frauds']].create_index('resolved_at_dt')
             self.db[self.COLLECTIONS['resolved_frauds']].create_index('resolved_by.email')
+
+            self.db[self.COLLECTIONS['threshold_audit_logs']].create_index('model_type')
+            self.db[self.COLLECTIONS['threshold_audit_logs']].create_index('changed_at_dt')
+            self.db[self.COLLECTIONS['threshold_audit_logs']].create_index('actor.email')
+
+            self.db[self.COLLECTIONS['auth_login_attempts']].create_index('throttle_key', unique=True)
+            self.db[self.COLLECTIONS['auth_login_attempts']].create_index('blocked_until_dt')
             
         except Exception:
             pass  # Indexes may already exist

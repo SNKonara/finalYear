@@ -32,6 +32,7 @@
   --gradient-primary: linear-gradient(135deg, var(--primary), var(--purple));
   --gradient-danger: linear-gradient(135deg, var(--danger), var(--pink));
   --gradient-success: linear-gradient(135deg, var(--success), var(--cyan));
+  --surface-overlay: rgba(30, 30, 63, 0.8);
 }
 
 * {
@@ -45,6 +46,10 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-size: 14px;
+}
+
+body[data-theme='light'] {
+  --surface-overlay: rgba(255, 255, 255, 0.88);
 }
 
 /* Dashboard Layout */
@@ -183,17 +188,30 @@ body {
   overflow-x: hidden;
 }
 
-.batch-topbar {
-  padding: 20px 32px;
-  border-bottom: 1px solid var(--border-color);
+.batch-page-header {
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--surface-overlay);
+  backdrop-filter: blur(10px);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(30, 30, 63, 0.8);
-  backdrop-filter: blur(10px);
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
-.topbar-left h1 {
+.batch-page-header-text {
+  min-width: 240px;
+}
+
+.batch-subtitle {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.batch-page-header h1 {
   font-size: 28px;
   font-weight: 800;
   background: linear-gradient(135deg, var(--text-primary), var(--primary));
@@ -203,17 +221,12 @@ body {
   margin-bottom: 4px;
 }
 
-.subtitle {
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.model-selector {
+.batch-model-selector {
   display: flex;
   gap: 8px;
 }
 
-.model-btn {
+.batch-model-btn {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -228,18 +241,18 @@ body {
   font-weight: 500;
 }
 
-.model-btn:hover {
+.batch-model-btn:hover {
   background: var(--bg-card);
   color: var(--text-primary);
 }
 
-.model-btn.active {
+.batch-model-btn.active {
   background: rgba(139, 92, 246, 0.15);
   border-color: var(--primary);
   color: var(--primary);
 }
 
-.model-icon {
+.batch-model-icon {
   width: 18px;
   height: 18px;
 }
@@ -271,7 +284,7 @@ body {
 }
 
 /* Content Area */
-.content-area {
+.batch-content-area {
   flex: 1;
   padding: 32px;
 }
@@ -1351,12 +1364,12 @@ body {
     display: none;
   }
   
-  .batch-topbar {
+  .batch-page-header {
     flex-direction: column;
     gap: 16px;
   }
   
-  .model-selector {
+  .batch-model-selector {
     width: 100%;
     justify-content: center;
   }

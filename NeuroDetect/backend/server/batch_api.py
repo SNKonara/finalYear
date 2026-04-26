@@ -92,16 +92,18 @@ from routes_auth import (
     _ensure_auth_collections,
     _seed_default_auth_users,
 )
-from routes_batch import router as batch_router
+from routes_batch import router as batch_router, apply_saved_threshold_overrides
 from routes_alerts import router as alerts_router
 from routes_investigations import router as investigations_router
 from routes_reports import router as reports_router
+from routes_system import router as system_router
 
 app.include_router(auth_router)
 app.include_router(batch_router)
 app.include_router(alerts_router)
 app.include_router(investigations_router)
 app.include_router(reports_router)
+app.include_router(system_router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -133,6 +135,9 @@ async def startup_event():
     
     logger.info("-" * 60)
     if ae_loaded or lstm_loaded or snn_loaded:
+        applied_overrides = apply_saved_threshold_overrides()
+        if applied_overrides:
+            logger.info(f"Applied persisted threshold overrides: {applied_overrides}")
         logger.info(f"API is ready with {len(MODELS)} model(s) loaded")
     else:
         logger.error("WARNING: No models loaded! Check errors above.")
