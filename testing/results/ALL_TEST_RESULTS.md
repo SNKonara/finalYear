@@ -33,7 +33,6 @@ This document consolidates all currently available test result artifacts under `
 
 Run info:
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
 - Backend URL: `http://127.0.0.1:8000`
 - Command: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000 --all-models`
 
@@ -57,7 +56,6 @@ Summary:
 
 Run info:
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
 
 | Case ID | Result | Evidence | Notes |
 |---|---|---|---|
@@ -79,7 +77,6 @@ Metrics:
 
 Run info:
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
 
 | Case ID | Result | Evidence | Notes |
 |---|---|---|---|
@@ -99,7 +96,6 @@ Metrics:
 
 Run info:
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
 
 | Case ID | Result | Evidence | Notes |
 |---|---|---|---|
@@ -119,7 +115,6 @@ Metrics:
 
 Run info:
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
 
 ### 5.1 API Cases
 

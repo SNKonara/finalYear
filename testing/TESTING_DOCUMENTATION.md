@@ -101,7 +101,6 @@ Additional data to prepare as needed:
 ## 6. Quick Execution Checklist
 
 Date baseline: 2026-04-26  
-Tester baseline: Automated Cross-Day Validation  
 Environment baseline: Local Windows, Python 3.x, CUDA enabled, MongoDB
 
 ### 6.1 Pre-Run Setup

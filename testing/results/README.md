@@ -13,7 +13,7 @@ Store executed test outcomes here.
 
 ## Logging Rules
 
-1. Record date, commit/branch, tester, environment.
+1. Record date and environment.
 2. For each case, mark PASS/FAIL/BLOCKED.
 3. Include evidence: response snippets, timings, screenshots, error traces.
 4. Add defect IDs and severity where applicable.
