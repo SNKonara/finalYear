@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Clock3, Filter, Search } from 'lucide-react';
 import { useTheme } from '../theme/ThemeContext';
 import { useAuth } from '../auth/AuthContext';
@@ -83,6 +83,10 @@ const Investigations: React.FC = () => {
   const { currentTheme, isDarkTheme } = useTheme();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isSeniorView = location.pathname.startsWith('/senior-alerts');
+  const basePath = isSeniorView ? '/senior-alerts' : '/investigations';
+  const alertStatus = isSeniorView ? 'escalated' : 'open';
   const [queueItems, setQueueItems] = useState<InvestigationQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>('');
@@ -99,7 +103,7 @@ const Investigations: React.FC = () => {
     setIsLoading(true);
     setLoadError('');
     try {
-      const response = await fetch(`${API_BASE}/investigations/alerts?hours=24&status=open&limit=300`);
+      const response = await fetch(`${API_BASE}/investigations/alerts?hours=24&status=${encodeURIComponent(alertStatus)}&limit=300`);
       if (!response.ok) {
         throw new Error('Failed to load investigation alerts');
       }
@@ -118,7 +122,7 @@ const Investigations: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [alertStatus]);
 
   useEffect(() => {
     void fetchInvestigations();
@@ -189,7 +193,7 @@ const Investigations: React.FC = () => {
           >
             <nav style={{ display: 'grid', gap: '8px', padding: '0 16px' }}>
               {navLinks.map(({ label, to }) => {
-                const active = to === '/investigations';
+                const active = isSeniorView ? to === '/senior-alerts' : to === '/investigations';
                 return (
                   <Link
                     key={label}
@@ -222,9 +226,11 @@ const Investigations: React.FC = () => {
                   <div style={{ color: muted, fontSize: '.68rem', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: '8px' }}>
                     Investigations Workflow
                   </div>
-                  <h1 style={{ margin: 0, fontSize: '1.86rem', lineHeight: 1.1, fontWeight: 800 }}>Case Queue</h1>
+                  <h1 style={{ margin: 0, fontSize: '1.86rem', lineHeight: 1.1, fontWeight: 800 }}>{isSeniorView ? 'Escalated Fraud Queue' : 'Case Queue'}</h1>
                   <div style={{ marginTop: '10px', color: textSoft, fontSize: '.88rem', lineHeight: 1.6, maxWidth: '660px' }}>
-                    Open any case to review the forensic detail, confirm fraud, and move it into the resolved archive with analyst attribution.
+                    {isSeniorView
+                      ? 'Review fraud alerts escalated by analysts, confirm the case, and close the loop with senior analyst attribution.'
+                      : 'Open any case to review the forensic detail, confirm fraud, and move it into the resolved archive with analyst attribution.'}
                   </div>
                 </div>
                 <div style={{ color: muted, fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
@@ -300,7 +306,7 @@ const Investigations: React.FC = () => {
                 </div>
               ) : null}
 
-              {isLoading ? <div style={{ marginBottom: '12px', color: muted, fontSize: '.84rem' }}>Loading last 24h fraud alerts...</div> : null}
+              {isLoading ? <div style={{ marginBottom: '12px', color: muted, fontSize: '.84rem' }}>{isSeniorView ? 'Loading last 24h escalated fraud alerts...' : 'Loading last 24h fraud alerts...'}</div> : null}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
                 {filteredItems.map((item) => {
@@ -317,7 +323,7 @@ const Investigations: React.FC = () => {
                     <button
                       key={item.alertId}
                       type="button"
-                      onClick={() => navigate(`/investigations/${item.alertId}`)}
+                      onClick={() => navigate(`${basePath}/${item.alertId}`)}
                       style={{
                         width: '100%',
                         textAlign: 'left',

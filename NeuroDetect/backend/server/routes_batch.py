@@ -96,6 +96,89 @@ def _validate_threshold(model_type: str, threshold: float) -> None:
             raise HTTPException(status_code=400, detail='Threshold must be between 0 and 1')
 
 
+def _to_binary_label(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return 1 if float(value) >= 0.5 else 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {'1', 'true', 'fraud', 'yes'}:
+            return 1
+        if lowered in {'0', 'false', 'legit', 'legitimate', 'no'}:
+            return 0
+        try:
+            return 1 if float(lowered) >= 0.5 else 0
+        except ValueError:
+            return None
+    return None
+
+
+def _compute_labeled_metrics(results_df: pd.DataFrame) -> dict[str, Any]:
+    """Compute accuracy-style metrics when ground-truth labels exist in input payload."""
+    if 'prediction' not in results_df.columns:
+        return {}
+
+    truth_column = None
+    if 'is_fraud' in results_df.columns:
+        truth_column = 'is_fraud'
+    elif 'H1' in results_df.columns:
+        truth_column = 'H1'
+
+    if truth_column is None:
+        return {}
+
+    truth_series = results_df[truth_column].map(_to_binary_label)
+    pred_series = results_df['prediction'].map(_to_binary_label)
+    valid_mask = truth_series.notna() & pred_series.notna()
+    if int(valid_mask.sum()) == 0:
+        return {}
+
+    truth = truth_series[valid_mask].astype(int)
+    pred = pred_series[valid_mask].astype(int)
+
+    tp = int(((truth == 1) & (pred == 1)).sum())
+    fp = int(((truth == 0) & (pred == 1)).sum())
+    tn = int(((truth == 0) & (pred == 0)).sum())
+    fn = int(((truth == 1) & (pred == 0)).sum())
+    total = int(len(truth))
+    positives = int((truth == 1).sum())
+    negatives = int((truth == 0).sum())
+
+    precision = float(tp / (tp + fp)) if (tp + fp) > 0 else None
+    recall = float(tp / (tp + fn)) if positives > 0 and (tp + fn) > 0 else None
+    f1 = float((2 * precision * recall) / (precision + recall)) if precision is not None and recall is not None and (precision + recall) > 0 else None
+    accuracy = float((tp + tn) / total) if total > 0 else 0.0
+    specificity = float(tn / (tn + fp)) if negatives > 0 and (tn + fp) > 0 else None
+    false_positive_rate = float(fp / negatives) if negatives > 0 else None
+
+    return {
+        'truth_column': truth_column,
+        'labeled_count': total,
+        'positive_labels': positives,
+        'negative_labels': negatives,
+        'tp': tp,
+        'fp': fp,
+        'tn': tn,
+        'fn': fn,
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'specificity': specificity,
+        'false_positive_rate': false_positive_rate,
+        'accuracy_percent': round(accuracy * 100.0, 2),
+        'precision_percent': round(precision * 100.0, 2) if precision is not None else None,
+        'recall_percent': round(recall * 100.0, 2) if recall is not None else None,
+        'f1_percent': round(f1 * 100.0, 2) if f1 is not None else None,
+        'specificity_percent': round(specificity * 100.0, 2) if specificity is not None else None,
+        'false_positive_rate_percent': round(false_positive_rate * 100.0, 2) if false_positive_rate is not None else None,
+        'single_class_labels': positives == 0 or negatives == 0,
+    }
+
+
 def _load_threshold_overrides() -> dict[str, float]:
     if not THRESHOLD_OVERRIDES_PATH.exists():
         return {}
@@ -337,6 +420,49 @@ async def process_batch(
             'min_fraud_score': float(fraud_scores.min()),
             'threshold': float(effective_threshold)
         }
+
+        labeled_metrics = _compute_labeled_metrics(results_df)
+        if labeled_metrics:
+            stats['labeled_metrics'] = labeled_metrics
+            stats['accuracy'] = labeled_metrics['accuracy']
+            stats['precision'] = labeled_metrics.get('precision')
+            stats['recall'] = labeled_metrics.get('recall')
+            stats['f1'] = labeled_metrics.get('f1')
+            stats['specificity'] = labeled_metrics.get('specificity')
+            stats['false_positive_rate'] = labeled_metrics.get('false_positive_rate')
+
+            model_perf = MODEL_CONFIGS.setdefault(model_type, {}).setdefault('performance', {})
+            model_perf['accuracy'] = labeled_metrics['accuracy']
+            if labeled_metrics.get('precision') is not None:
+                model_perf['precision'] = labeled_metrics['precision']
+            if labeled_metrics.get('recall') is not None:
+                model_perf['recall'] = labeled_metrics['recall']
+            if labeled_metrics.get('f1') is not None:
+                model_perf['f1'] = labeled_metrics['f1']
+                model_perf['f1_score'] = labeled_metrics['f1']
+            if labeled_metrics.get('specificity') is not None:
+                model_perf['specificity'] = labeled_metrics['specificity']
+            if labeled_metrics.get('false_positive_rate') is not None:
+                model_perf['false_positive_rate'] = labeled_metrics['false_positive_rate']
+            model_perf['runtime_validated_at'] = datetime.utcnow().isoformat()
+
+            if labeled_metrics.get('single_class_labels'):
+                logger.info(
+                    f"Runtime labeled metrics ({model_type}) on single-class batch: "
+                    f"accuracy={labeled_metrics['accuracy_percent']:.2f}% "
+                    f"specificity={labeled_metrics.get('specificity_percent')} "
+                    f"fpr={labeled_metrics.get('false_positive_rate_percent')}"
+                )
+            else:
+                def _fmt(v):
+                    return f"{v:.2f}" if v is not None else "N/A"
+                logger.info(
+                    f"Runtime labeled metrics ({model_type}): "
+                    f"accuracy={_fmt(labeled_metrics.get('accuracy_percent'))}% "
+                    f"precision={_fmt(labeled_metrics.get('precision_percent'))}% "
+                    f"recall={_fmt(labeled_metrics.get('recall_percent'))}% "
+                    f"f1={_fmt(labeled_metrics.get('f1_percent'))}%"
+                )
         
         # Save to MongoDB (batch summary and transaction results)
         mongo_saved = processor.save_to_mongodb(results_df, batch_id, model_type, stats)

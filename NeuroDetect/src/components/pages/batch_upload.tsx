@@ -591,10 +591,10 @@ const BatchProcessing: React.FC = () => {
           </button>
           <button 
             className="nav-item"
-            onClick={() => navigate(currentUser?.role === 'admin' ? '/reports' : '/investigations')}
+            onClick={() => navigate(currentUser?.role === 'admin' ? '/reports' : currentUser?.role === 'senior_analyst' ? '/senior-alerts' : '/investigations')}
           >
             <Search className="nav-icon" />
-            <span>{currentUser?.role === 'admin' ? 'Report' : 'Investigation'}</span>
+            <span>{currentUser?.role === 'admin' ? 'Report' : currentUser?.role === 'senior_analyst' ? 'Escalated Fraud' : 'Investigation'}</span>
           </button>
           <button 
             className={`nav-item ${activeTab === 'upload' ? 'active' : ''}`}
@@ -626,6 +626,13 @@ const BatchProcessing: React.FC = () => {
           >
             <FileText className="nav-icon" />
             <span>Reports</span>
+          </button>
+          <button
+            className="nav-item"
+            onClick={() => navigate('/system')}
+          >
+            <Cpu className="nav-icon" />
+            <span>System</span>
           </button>
         </nav>
 

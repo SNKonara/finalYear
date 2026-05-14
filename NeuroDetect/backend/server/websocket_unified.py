@@ -1273,9 +1273,18 @@ async def main():
     # Start WebSocket server
     print(f"\n[OK] Server starting on ws://{HOST}:{PORT}")
     print("   Waiting for connections...\n")
-    
-    async with websockets.serve(server.handler, HOST, PORT, ping_interval=30, ping_timeout=10):
-        await asyncio.Future()
+
+    while True:
+        try:
+            async with websockets.serve(server.handler, HOST, PORT, ping_interval=30, ping_timeout=10):
+                await asyncio.Future()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[WARN] WebSocket server loop recovered from error: {e}")
+            import traceback
+            traceback.print_exc()
+            await asyncio.sleep(1)
 
 
 if __name__ == "__main__":

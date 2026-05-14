@@ -46,6 +46,7 @@ class RoleUpdateRequest(BaseModel):
 class UserCreateRequest(BaseModel):
     name: str
     email: str
+    phone_number: str
     password: str
     role: str
 
@@ -107,6 +108,7 @@ def _seed_default_auth_users() -> None:
         {
             'name': 'System Admin',
             'email': 'admin@neurodetect.ai',
+            'phone_number': '',
             'password_hash': _hash_password('admin123'),
             'role': 'admin',
             'created_at': now,
@@ -115,6 +117,7 @@ def _seed_default_auth_users() -> None:
         {
             'name': 'Fraud Analyst',
             'email': 'analyst@neurodetect.ai',
+            'phone_number': '',
             'password_hash': _hash_password('analyst123'),
             'role': 'analyst',
             'created_at': now,
@@ -123,6 +126,7 @@ def _seed_default_auth_users() -> None:
         {
             'name': 'Management Viewer',
             'email': 'viewer@neurodetect.ai',
+            'phone_number': '',
             'password_hash': _hash_password('viewer123'),
             'role': 'viewer',
             'created_at': now,
@@ -138,6 +142,7 @@ def _sanitize_auth_user(user_doc: dict[str, Any]) -> dict[str, str]:
         'name': str(user_doc.get('name', '')),
         'email': str(user_doc.get('email', '')),
         'role': str(user_doc.get('role', 'viewer')),
+        'phone_number': str(user_doc.get('phone_number', '') or ''),
     }
 
 
@@ -406,6 +411,7 @@ async def auth_create_user(payload: UserCreateRequest, authorization: Optional[s
 
     name = payload.name.strip()
     email = payload.email.strip().lower()
+    phone_number = payload.phone_number.strip()
     password = payload.password.strip()
     requested_role = payload.role.strip().lower()
 
@@ -415,6 +421,10 @@ async def auth_create_user(payload: UserCreateRequest, authorization: Optional[s
         raise HTTPException(status_code=400, detail='Email is required')
     if not _is_valid_organization_email(email):
         raise HTTPException(status_code=400, detail='Email must use the format xxx@neurodetect.ai')
+    if not phone_number:
+        raise HTTPException(status_code=400, detail='Phone number is required')
+    if not phone_number.startswith('+') or ' ' not in phone_number:
+        raise HTTPException(status_code=400, detail='Phone number must use +CC XXXXXXXX format')
     if len(password) < 6:
         raise HTTPException(status_code=400, detail='Password must be at least 6 characters')
     if requested_role not in VALID_ROLES:
@@ -428,6 +438,7 @@ async def auth_create_user(payload: UserCreateRequest, authorization: Optional[s
     insert_result = users_collection.insert_one({
         'name': name,
         'email': email,
+        'phone_number': phone_number,
         'password_hash': _hash_password(password),
         'role': requested_role,
         'created_at': now,

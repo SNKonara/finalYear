@@ -1,0 +1,343 @@
+{
+  "test_execution": "2026-04-26T04:35:41.548151",
+  "api_base": "http://127.0.0.1:8000",
+  "sample_file": "backend/dataset/fraudTest_sample20.csv",
+  "phases": {
+    "1_baseline_consistency": {
+      "description": "3 runs per model for consistency check",
+      "results": {
+        "autoencoder": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:38.474952",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 1.152834415435791,
+            "batch_id": "batch_autoencoder_20260426_100537"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:38.560624",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.08473587036132812,
+            "batch_id": "batch_autoencoder_20260426_100538"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:38.629465",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.06788516044616699,
+            "batch_id": "batch_autoencoder_20260426_100538"
+          }
+        ],
+        "lstm": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:38.903404",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.27269959449768066,
+            "batch_id": "batch_lstm_20260426_100538"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:38.986945",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.08252477645874023,
+            "batch_id": "batch_lstm_20260426_100538"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.075355",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.08742237091064453,
+            "batch_id": "batch_lstm_20260426_100539"
+          }
+        ],
+        "snn": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.340564",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.2635636329650879,
+            "batch_id": "batch_snn_20260426_100539"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.619838",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.27766895294189453,
+            "batch_id": "batch_snn_20260426_100539"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.856547",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.2348496913909912,
+            "batch_id": "batch_snn_20260426_100539"
+          }
+        ]
+      }
+    },
+    "2_threshold_monotonicity": {
+      "description": "Threshold sweep with monotonicity validation",
+      "results": {
+        "autoencoder": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.914297",
+            "model_type": "autoencoder",
+            "threshold": 0.3,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.05617213249206543,
+            "batch_id": "batch_autoencoder_20260426_100539"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:39.987045",
+            "model_type": "autoencoder",
+            "threshold": 0.5,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.07165813446044922,
+            "batch_id": "batch_autoencoder_20260426_100539"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.044332",
+            "model_type": "autoencoder",
+            "threshold": 0.7,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.05629396438598633,
+            "batch_id": "batch_autoencoder_20260426_100539"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.130553",
+            "model_type": "autoencoder",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.08509373664855957,
+            "batch_id": "batch_autoencoder_20260426_100540"
+          }
+        ],
+        "lstm": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.219008",
+            "model_type": "lstm",
+            "threshold": 0.3,
+            "fraud_count": 10,
+            "total": 20,
+            "fraud_percentage": 50.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.08707213401794434,
+            "batch_id": "batch_lstm_20260426_100540"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.329553",
+            "model_type": "lstm",
+            "threshold": 0.5,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.1095271110534668,
+            "batch_id": "batch_lstm_20260426_100540"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.435938",
+            "model_type": "lstm",
+            "threshold": 0.7,
+            "fraud_count": 1,
+            "total": 20,
+            "fraud_percentage": 5.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.10546302795410156,
+            "batch_id": "batch_lstm_20260426_100540"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.508356",
+            "model_type": "lstm",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.07149171829223633,
+            "batch_id": "batch_lstm_20260426_100540"
+          }
+        ],
+        "snn": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:40.794842",
+            "model_type": "snn",
+            "threshold": 0.3,
+            "fraud_count": 7,
+            "total": 20,
+            "fraud_percentage": 35.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.28482842445373535,
+            "batch_id": "batch_snn_20260426_100540"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:41.036785",
+            "model_type": "snn",
+            "threshold": 0.5,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.24039006233215332,
+            "batch_id": "batch_snn_20260426_100540"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:41.285417",
+            "model_type": "snn",
+            "threshold": 0.7,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.2471179962158203,
+            "batch_id": "batch_snn_20260426_100541"
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:35:41.535014",
+            "model_type": "snn",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.2481822967529297,
+            "batch_id": "batch_snn_20260426_100541"
+          }
+        ]
+      }
+    },
+    "3_lstm_sequence_sensitivity": {
+      "description": "LSTM ordering sensitivity test",
+      "results": {
+        "skipped": true,
+        "reason": "Requires file variants"
+      }
+    },
+    "4_data_drift_detection": {
+      "description": "Score distribution analysis",
+      "results": {
+        "status": "error",
+        "reason": "'str' object has no attribute 'get'"
+      }
+    }
+  },
+  "summary": {
+    "baseline_consistency_pass": true,
+    "threshold_monotonicity_pass": true,
+    "overall_status": "PASS",
+    "recommendations": []
+  }
+}

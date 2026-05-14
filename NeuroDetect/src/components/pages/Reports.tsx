@@ -8,7 +8,6 @@ import {
   FileText,
   MoreVertical,
   Search,
-  Share2,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getRoleSidebarItems } from '../layout/roleNavigation';
@@ -216,12 +215,10 @@ const Reports: React.FC = () => {
   const trend = sections?.transactions_vs_frauds_trend;
   const performance = (sections?.detection_model_performance || [])[0];
   const merchantRows = sections?.top_fraudulent_merchants || [];
-  const detailRows = merchantRows.slice(0, 5).map((merchant, idx) => ({
-    id: `#TRX-${selectedReport?.report_id?.slice(-4) || '0000'}${idx + 1}`,
-    riskScore: Math.max(0.72, 0.93 - idx * 0.01),
-    vector: merchant.merchant_name || 'Merchant Risk Cluster',
-    amount: merchant.total_fraud_amount || 0,
-    status: 'Resolved',
+  const detailRows = merchantRows.slice(0, 5).map((merchant) => ({
+    merchantName: merchant.merchant_name || 'Unknown Merchant',
+    fraudCount: Number(merchant.fraud_count || 0),
+    amount: Number(merchant.total_fraud_amount || 0),
   }));
 
   const border = isDarkTheme ? 'rgba(148, 163, 184, 0.18)' : '#e7ebf3';
@@ -453,10 +450,6 @@ const Reports: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button type="button" style={actionButtonStyle}>
-                      <Share2 size={15} />
-                      Share
-                    </button>
                     <button
                       type="button"
                       style={actionButtonStyle}
@@ -468,10 +461,6 @@ const Reports: React.FC = () => {
                     >
                       <FileText size={15} />
                       Open Report
-                    </button>
-                    <button type="button" style={actionButtonStyle}>
-                      <Clock3 size={15} />
-                      Schedule
                     </button>
                     <button
                       type="button"
@@ -496,17 +485,16 @@ const Reports: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px', marginBottom: '18px' }}>
                   {[
-                    ['Total Analyzed', summaryCards?.total_transactions ?? selectedReport.summary?.total_transactions ?? 0, '+12% vs last mo'],
-                    ['Fraud Detections', summaryCards?.number_of_frauds ?? selectedReport.summary?.fraud_detected ?? 0, '-2% vs last mo'],
-                    ['Model Confidence', `${(performance?.accuracy ?? 99.4).toFixed(1)}%`, ''],
-                  ].map(([label, value, delta]) => (
+                    ['Total Analyzed', summaryCards?.total_transactions ?? selectedReport.summary?.total_transactions ?? 0],
+                    ['Fraud Detections', summaryCards?.number_of_frauds ?? selectedReport.summary?.fraud_detected ?? 0],
+                    ['Model Confidence', performance?.accuracy != null ? `${Number(performance.accuracy).toFixed(1)}%` : 'N/A'],
+                  ].map(([label, value]) => (
                     <div key={String(label)} style={{ border: `1px solid ${border}`, borderRadius: '18px', background: soft, padding: '16px' }}>
                       <div style={{ color: muted, fontSize: '.72rem', fontWeight: 800, textTransform: 'uppercase', marginBottom: '8px' }}>{label}</div>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' }}>
                         <div style={{ fontSize: '2rem', fontWeight: 900, color: text }}>
                           {typeof value === 'number' ? (Number(value) > 999999 ? `${(Number(value) / 1000000).toFixed(1)}M` : Number(value).toLocaleString()) : String(value)}
                         </div>
-                        {delta && <div style={{ color: '#10b981', fontWeight: 700, fontSize: '.82rem' }}>{delta}</div>}
                       </div>
                     </div>
                   ))}
@@ -523,7 +511,7 @@ const Reports: React.FC = () => {
                     </div>
                     <div style={{ padding: '22px 22px 16px' }}>
                       <TrendBars
-                        labels={trend?.labels || ['W1', 'W2', 'W3', 'W4']}
+                        labels={trend?.labels || []}
                         totalSeries={trend?.total_transactions || []}
                         fraudSeries={trend?.fraud_cases || []}
                       />
@@ -544,7 +532,7 @@ const Reports: React.FC = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ background: soft }}>
                         <tr>
-                          {['Entity ID', 'Risk Score', 'Vector', 'Amount', 'SLA Status'].map((label) => (
+                          {['Merchant', 'Fraud Count', 'Amount'].map((label) => (
                             <th
                               key={label}
                               style={{
@@ -570,28 +558,15 @@ const Reports: React.FC = () => {
                       <tbody>
                         {detailRows.map((row, idx) => (
                           <tr
-                            key={row.id}
+                            key={`${row.merchantName}-${idx}`}
                             style={{
                               borderTop: `1px solid ${border}`,
                               background: idx % 2 === 0 ? (isDarkTheme ? 'rgba(255,255,255,0.01)' : '#ffffff') : (isDarkTheme ? 'rgba(148,163,184,0.06)' : '#f8fafc'),
                             }}
                           >
-                            <td style={{ padding: '18px', color: '#7c3aed', fontWeight: 800 }}>{row.id}</td>
-                            <td style={{ padding: '18px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '88px', height: '6px', borderRadius: '999px', background: isDarkTheme ? 'rgba(255,255,255,.08)' : '#fee2e2', overflow: 'hidden' }}>
-                                  <div style={{ width: `${row.riskScore * 100}%`, height: '100%', background: '#ff5d5d' }} />
-                                </div>
-                                <span style={{ fontWeight: 700 }}>{row.riskScore.toFixed(4)}</span>
-                              </div>
-                            </td>
-                            <td style={{ padding: '18px', color: textSoft }}>{row.vector}</td>
+                            <td style={{ padding: '18px', color: textSoft }}>{row.merchantName}</td>
+                            <td style={{ padding: '18px', fontWeight: 700 }}>{row.fraudCount.toLocaleString()}</td>
                             <td style={{ padding: '18px', fontWeight: 800 }}>${row.amount.toLocaleString()}</td>
-                            <td style={{ padding: '18px' }}>
-                              <span style={{ padding: '6px 10px', borderRadius: '999px', background: '#dcfce7', color: '#059669', fontWeight: 800, fontSize: '.72rem' }}>
-                                {row.status}
-                              </span>
-                            </td>
                           </tr>
                         ))}
                       </tbody>

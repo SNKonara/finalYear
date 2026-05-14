@@ -11,6 +11,8 @@ export const getDefaultRouteByRole = (role: UserRole): string => {
       return '/snnreal';
     case 'analyst':
       return '/snnreal';
+    case 'senior_analyst':
+      return '/senior-alerts';
     case 'viewer':
       return '/summary';
     default:
@@ -31,6 +33,14 @@ export const getRoleSidebarItems = (role: UserRole): RoleNavItem[] => {
       return [
         { label: 'Dashboard', to: '/snnreal' },
         { label: 'Investigation', to: '/investigations' },
+        { label: 'System', to: '/system' },
+        { label: 'Batch Upload', to: '/batch-upload' },
+        { label: 'Reports', to: '/reports' },
+      ];
+    case 'senior_analyst':
+      return [
+        { label: 'Dashboard', to: '/snnreal' },
+        { label: 'Escalated Fraud', to: '/senior-alerts' },
         { label: 'System', to: '/system' },
         { label: 'Batch Upload', to: '/batch-upload' },
         { label: 'Reports', to: '/reports' },
@@ -70,6 +80,7 @@ export const getCurrentSectionLabel = (pathname: string, role: UserRole | null |
   if (match) return match.label;
   if (pathname === '/lstmreal' || pathname === '/snnreal') return 'Dashboard';
   if (pathname.startsWith('/investigations/')) return 'Investigation';
+  if (pathname.startsWith('/senior-alerts/')) return 'Escalated Fraud';
   if (pathname === '/snn-alerts') return 'Investigation';
   return 'Workspace';
 };

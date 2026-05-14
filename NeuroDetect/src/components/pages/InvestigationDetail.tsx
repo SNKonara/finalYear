@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -112,6 +112,9 @@ const buildFeatureContributions = (detail: InvestigationDetailResponse) => {
 const InvestigationDetail: React.FC = () => {
   const { alertId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isSeniorView = location.pathname.startsWith('/senior-alerts/');
+  const basePath = isSeniorView ? '/senior-alerts' : '/investigations';
   const { currentTheme, isDarkTheme } = useTheme();
   const { currentUser } = useAuth();
   const [detail, setDetail] = useState<InvestigationDetailResponse | null>(null);
@@ -193,14 +196,14 @@ const InvestigationDetail: React.FC = () => {
       );
       setActionMessage(successPayload.message);
       window.setTimeout(() => {
-        navigate('/investigations');
+        navigate(basePath);
       }, 900);
     } catch (requestError) {
       setActionError(requestError instanceof Error ? requestError.message : 'Failed to confirm alert as fraud');
     } finally {
       setActionLoading(false);
     }
-  }, [actionLoading, currentUser, detail, navigate]);
+  }, [actionLoading, basePath, currentUser, detail, navigate]);
 
   const handleFalsePositive = useCallback(async () => {
     if (!detail?.alert_id || actionLoading) return;
@@ -343,7 +346,7 @@ const InvestigationDetail: React.FC = () => {
           <aside style={{ borderRight: `1px solid ${border}`, background: sidebarBg, padding: '22px 0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <nav style={{ display: 'grid', gap: '8px', padding: '0 16px' }}>
               {navLinks.map(({ label, to }) => {
-                const active = to === '/investigations';
+                const active = isSeniorView ? to === '/senior-alerts' : to === '/investigations';
                 return (
                   <Link
                     key={label}
@@ -374,7 +377,7 @@ const InvestigationDetail: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
                 <button
                   type="button"
-                  onClick={() => navigate('/investigations')}
+                  onClick={() => navigate(basePath)}
                   style={{ width: '36px', height: '36px', borderRadius: '12px', border: `1px solid ${border}`, background: panel, color: text, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                 >
                   <ArrowLeft size={16} />

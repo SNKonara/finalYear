@@ -271,6 +271,31 @@ async def test_model(model_type: str = Form(...)):
 
 
 
+@app.post("/models/reload")
+async def reload_model(model_type: str = Form(...)):
+    """Reload a specific model without restarting the server"""
+    valid_types = ['autoencoder', 'lstm', 'snn']
+    if model_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Unknown model type '{model_type}'. Valid: {valid_types}")
+    try:
+        if model_type == 'autoencoder':
+            success = processor.load_autoencoder_model()
+        elif model_type == 'lstm':
+            success = processor.load_lstm_model()
+        else:
+            success = processor.load_snn_model()
+
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Model '{model_type}' failed to load. Check server logs.")
+
+        return {"success": True, "model_type": model_type, "models_loaded": list(MODELS.keys())}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reload error for {model_type}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "batch_api:app",

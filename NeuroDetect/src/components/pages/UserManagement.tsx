@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle,
   Edit2,
-  ListOrdered,
   LogOut,
   Plus,
   Search,
@@ -11,7 +10,6 @@ import {
   ShieldCheck,
   Trash2,
   Users,
-  Workflow,
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
@@ -23,6 +21,7 @@ import type { ManagedUser, UserRole } from '../../auth/types';
 interface FormData {
   name: string;
   email: string;
+  phone_number: string;
   password: string;
   role: UserRole;
 }
@@ -45,25 +44,21 @@ const inputBase = {
   outline: 'none',
 } satisfies React.CSSProperties;
 
-const roles: UserRole[] = ['admin', 'analyst', 'viewer'];
+const roles: UserRole[] = ['admin', 'analyst', 'senior_analyst', 'viewer'];
 const ORGANIZATION_EMAIL_PATTERN = /^[^\s@]+@neurodetect\.ai$/i;
+const PHONE_NUMBER_PATTERN = /^\+\d{1,3}\s\d{6,15}$/;
 
 const roleStyles: Record<UserRole, React.CSSProperties> = {
   admin: { background: '#f4f0ff', color: '#6d28d9', border: '1px solid #e6dbff' },
   analyst: { background: '#ecfdf5', color: '#059669', border: '1px solid #c7f2de' },
+  senior_analyst: { background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' },
   viewer: { background: '#eef6ff', color: '#0284c7', border: '1px solid #cfe5ff' },
 };
-
-const adminTabs = [
-  { key: 'users', label: 'Users & Roles', icon: Users },
-  { key: 'config', label: 'Model Config', icon: Settings2 },
-  { key: 'integrations', label: 'Integrations', icon: Workflow },
-  { key: 'logs', label: 'System Logs', icon: ListOrdered },
-] as const;
 
 const roleCards = [
   ['Admin', 'User lifecycle and access control'],
   ['Analyst', 'Dashboards, reviews, and reports'],
+  ['Senior Analyst', 'Escalated fraud review and phone notifications'],
   ['Viewer', 'Read-only operational visibility'],
 ] as const;
 
@@ -88,8 +83,7 @@ const UserManagement: React.FC = () => {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<(typeof adminTabs)[number]['key']>('users');
-  const [formData, setFormData] = useState<FormData>({ name: '', email: '', password: '', role: 'viewer' });
+  const [formData, setFormData] = useState<FormData>({ name: '', email: '', phone_number: '', password: '', role: 'viewer' });
 
   useEffect(() => {
     if (currentUser && currentUser.role !== 'admin') navigate('/unauthorized');
@@ -121,6 +115,7 @@ const UserManagement: React.FC = () => {
     total: users.length,
     admins: users.filter((u) => u.role === 'admin').length,
     analysts: users.filter((u) => u.role === 'analyst').length,
+    seniorAnalysts: users.filter((u) => u.role === 'senior_analyst').length,
     viewers: users.filter((u) => u.role === 'viewer').length,
   }), [users]);
 
@@ -142,10 +137,13 @@ const UserManagement: React.FC = () => {
     if (!ORGANIZATION_EMAIL_PATTERN.test(formData.email.trim())) {
       return setError('Email must use the format xxx@neurodetect.ai');
     }
+    if (!PHONE_NUMBER_PATTERN.test(formData.phone_number.trim())) {
+      return setError('Phone number must use +CC XXXXXXXX format, for example +94 704209968');
+    }
     try {
       setError(null);
       await createUser(token, formData);
-      setFormData({ name: '', email: '', password: '', role: 'viewer' });
+      setFormData({ name: '', email: '', phone_number: '', password: '', role: 'viewer' });
       setShowAddModal(false);
       await loadUsers();
       flashSuccess(`User ${formData.email} created successfully`);
@@ -191,6 +189,21 @@ const UserManagement: React.FC = () => {
   const shellBorder = isDarkTheme ? 'rgba(148,163,184,.18)' : '#e6ebf4';
   const shellText = isDarkTheme ? '#f8fafc' : '#111827';
   const shellMuted = isDarkTheme ? '#94a3b8' : '#7c8599';
+  const cardPanel = isDarkTheme ? '#111827' : '#ffffff';
+  const cardBorder = shellBorder;
+  const cardHeaderBg = isDarkTheme ? '#0f172a' : '#fbfcfe';
+  const cardRowBorder = isDarkTheme ? 'rgba(148,163,184,.12)' : '#f0f2f7';
+  const cardText = shellText;
+  const cardMuted = shellMuted;
+  const inputBg = isDarkTheme ? '#0b1220' : '#ffffff';
+  const inputText = shellText;
+  const inputBorder = shellBorder;
+  const mutedSurface = isDarkTheme ? '#0f172a' : '#f5f6fb';
+  const accentButtonText = '#ffffff';
+  const roleDirectoryBg = isDarkTheme ? '#111827' : '#fbfcfe';
+  const modalBg = isDarkTheme ? '#0f172a' : '#ffffff';
+  const modalText = shellText;
+  const modalMuted = shellMuted;
 
   return (
     <div style={{ minHeight: '100vh', background: shellBg, color: shellText }}>
@@ -229,19 +242,6 @@ const UserManagement: React.FC = () => {
             </aside>
 
             <main style={{ background: shellSoft }}>
-              <div style={{ padding: '26px 30px 18px', borderBottom: `1px solid ${shellBorder}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                  {adminTabs.map((tab) => {
-                    const active = activeTab === tab.key;
-                    return (
-                      <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 14, border: '1px solid transparent', background: active ? (isDarkTheme ? '#1f2937' : '#f1f2f7') : 'transparent', color: active ? shellText : shellMuted, fontWeight: 700, cursor: 'pointer' }}>
-                        <tab.icon size={16} /> {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
               <div style={{ padding: '28px 30px 32px' }}>
                 {error && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 14, marginBottom: 18 }}><XCircle size={18} color="#dc2626" /><div style={{ color: '#b91c1c', fontWeight: 600 }}>{error}</div></div>}
                 {success && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#ecfdf5', border: '1px solid #bbf7d0', borderRadius: 14, marginBottom: 18 }}><CheckCircle size={18} color="#10b981" /><div style={{ color: '#047857', fontWeight: 600 }}>{success}</div></div>}
@@ -252,9 +252,9 @@ const UserManagement: React.FC = () => {
                     <p style={{ margin: '8px 0 0', color: shellMuted, fontSize: '1rem' }}>Manage your team&apos;s access and review role assignments.</p>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 42, minWidth: 260, borderRadius: 14, border: '1px solid #d7deea', background: '#fff' }}>
-                      <Search size={16} color="#7c8599" />
-                      <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search users..." style={{ border: 'none', outline: 'none', width: '100%', fontSize: '.95rem', color: '#334155', background: 'transparent' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 42, minWidth: 260, borderRadius: 14, border: `1px solid ${inputBorder}`, background: inputBg }}>
+                      <Search size={16} color={cardMuted} />
+                      <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search users..." style={{ border: 'none', outline: 'none', width: '100%', fontSize: '.95rem', color: inputText, background: 'transparent' }} />
                     </div>
                     <button type="button" onClick={() => setShowAddModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, height: 42, padding: '0 18px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', color: '#fff', fontWeight: 700, cursor: 'pointer', boxShadow: '0 16px 30px rgba(124,58,237,.22)' }}>
                       <Plus size={16} /> Add Member
@@ -266,61 +266,63 @@ const UserManagement: React.FC = () => {
                   <StatCard label="Total Users" value={stats.total} color="#2563eb" />
                   <StatCard label="Administrators" value={stats.admins} color="#7c3aed" />
                   <StatCard label="Analysts" value={stats.analysts} color="#059669" />
+                  <StatCard label="Senior Analysts" value={stats.seniorAnalysts} color="#c2410c" />
                   <StatCard label="Viewers" value={stats.viewers} color="#0284c7" />
                 </div>
 
-                <div style={{ ...panel, overflow: 'hidden', marginBottom: 22 }}>
+                <div style={{ ...panel, overflow: 'hidden', marginBottom: 22, background: cardPanel, border: `1px solid ${cardBorder}` }}>
                   {loading ? (
-                    <div style={{ padding: 42, textAlign: 'center', color: '#7c8599' }}>Loading users...</div>
+                    <div style={{ padding: 42, textAlign: 'center', color: cardMuted }}>Loading users...</div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead style={{ background: '#fbfcfe', borderBottom: '1px solid #eef1f6' }}>
+                        <thead style={{ background: cardHeaderBg, borderBottom: `1px solid ${cardBorder}` }}>
                           <tr>
                             {['User', 'Role', 'Status', 'Last Active', 'Actions'].map((h, i) => (
-                              <th key={h} style={{ padding: '16px 18px', textAlign: i === 4 ? 'center' : 'left', color: '#6b7280', fontSize: '.9rem' }}>{h}</th>
+                              <th key={h} style={{ padding: '16px 18px', textAlign: i === 4 ? 'center' : 'left', color: cardMuted, fontSize: '.9rem' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {filteredUsers.map((user) => (
-                            <tr key={user.id} style={{ borderTop: '1px solid #f0f2f7' }}>
+                            <tr key={user.id} style={{ borderTop: `1px solid ${cardRowBorder}` }}>
                               <td style={{ padding: '16px 18px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                  <div style={{ width: 38, height: 38, borderRadius: 999, background: user.role === 'admin' ? 'linear-gradient(135deg,#c4b5fd,#8b5cf6)' : user.role === 'analyst' ? 'linear-gradient(135deg,#86efac,#10b981)' : 'linear-gradient(135deg,#bfdbfe,#60a5fa)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                                  <div style={{ width: 38, height: 38, borderRadius: 999, background: user.role === 'admin' ? 'linear-gradient(135deg,#c4b5fd,#8b5cf6)' : user.role === 'analyst' ? 'linear-gradient(135deg,#86efac,#10b981)' : user.role === 'senior_analyst' ? 'linear-gradient(135deg,#fdba74,#f97316)' : 'linear-gradient(135deg,#bfdbfe,#60a5fa)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
                                     {user.name.slice(0, 1).toUpperCase()}
                                   </div>
                                   <div>
-                                    <div style={{ fontWeight: 700, color: '#1f2937' }}>{user.name}</div>
-                                    <div style={{ color: '#7c8599', fontSize: '.92rem' }}>{user.email}</div>
+                                    <div style={{ fontWeight: 700, color: cardText }}>{user.name}</div>
+                                    <div style={{ color: cardMuted, fontSize: '.92rem' }}>{user.email}</div>
+                                    {user.phone_number ? <div style={{ color: cardMuted, fontSize: '.82rem' }}>{user.phone_number}</div> : null}
                                   </div>
                                 </div>
                               </td>
                               <td style={{ padding: '16px 18px' }}>
                                 {editingUserId === user.id ? (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <select value={selectedUser?.role || user.role} onChange={(e) => selectedUser && setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })} style={{ ...inputBase, width: 140, padding: '10px 12px' }}>
+                                    <select value={selectedUser?.role || user.role} onChange={(e) => selectedUser && setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })} style={{ ...inputBase, width: 140, padding: '10px 12px', background: inputBg, color: inputText, borderColor: inputBorder }}>
                                       {roles.map((role) => <option key={role} value={role}>{role}</option>)}
                                     </select>
-                                    <button type="button" onClick={() => selectedUser && handleUpdateRole(user.id, selectedUser.role)} style={{ padding: '9px 12px', borderRadius: 10, border: 'none', background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Save</button>
+                                    <button type="button" onClick={() => selectedUser && handleUpdateRole(user.id, selectedUser.role)} style={{ padding: '9px 12px', borderRadius: 10, border: 'none', background: '#10b981', color: accentButtonText, fontWeight: 700, cursor: 'pointer' }}>Save</button>
                                   </div>
                                 ) : (
-                                  <span style={{ display: 'inline-flex', padding: '8px 12px', borderRadius: 999, fontSize: '.82rem', fontWeight: 700, ...roleStyles[user.role] }}>{user.role === 'admin' ? 'Admin' : user.role === 'analyst' ? 'Analyst' : 'Viewer'}</span>
+                                  <span style={{ display: 'inline-flex', padding: '8px 12px', borderRadius: 999, fontSize: '.82rem', fontWeight: 700, ...roleStyles[user.role] }}>{user.role === 'admin' ? 'Admin' : user.role === 'analyst' ? 'Analyst' : user.role === 'senior_analyst' ? 'Senior Analyst' : 'Viewer'}</span>
                                 )}
                               </td>
                               <td style={{ padding: '16px 18px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6b7280' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: cardMuted }}>
                                   <span style={{ width: 8, height: 8, borderRadius: 999, background: user.role === 'viewer' ? '#cbd5e1' : '#10b981' }} />
                                   {user.role === 'viewer' ? 'offline' : 'online'}
                                 </div>
                               </td>
-                              <td style={{ padding: '16px 18px', color: '#6b7280' }}>{user.role === 'viewer' ? '2 hours ago' : 'Active now'}</td>
+                              <td style={{ padding: '16px 18px', color: cardMuted }}>{user.role === 'viewer' ? '2 hours ago' : 'Active now'}</td>
                               <td style={{ padding: '16px 18px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-                                  <button type="button" onClick={() => { setSelectedUser(user); setEditingUserId(user.id); }} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #d7deea', background: '#fff', color: '#475569', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                  <button type="button" onClick={() => { setSelectedUser(user); setEditingUserId(user.id); }} style={{ width: 38, height: 38, borderRadius: 12, border: `1px solid ${cardBorder}`, background: inputBg, color: shellText, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                                     <Edit2 size={16} />
                                   </button>
-                                  <button type="button" onClick={() => setShowDeleteConfirm(user.id)} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                  <button type="button" onClick={() => setShowDeleteConfirm(user.id)} style={{ width: 38, height: 38, borderRadius: 12, border: '1px solid #fecaca', background: isDarkTheme ? 'rgba(127,29,29,.22)' : '#fff5f5', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                                     <Trash2 size={16} />
                                   </button>
                                 </div>
@@ -328,7 +330,7 @@ const UserManagement: React.FC = () => {
                             </tr>
                           ))}
                           {!loading && filteredUsers.length === 0 && (
-                            <tr><td colSpan={5} style={{ padding: 28, textAlign: 'center', color: '#7c8599' }}>No users match your search.</td></tr>
+                            <tr><td colSpan={5} style={{ padding: 28, textAlign: 'center', color: cardMuted }}>No users match your search.</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -337,36 +339,36 @@ const UserManagement: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0,1fr)', gap: 18 }}>
-                  <div style={{ ...panel, padding: 22 }}>
+                  <div style={{ ...panel, padding: 22, background: cardPanel, border: `1px solid ${cardBorder}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                       <ShieldCheck size={18} color="#7c3aed" />
-                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#232735' }}>Role Directory</h3>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: cardText }}>Role Directory</h3>
                     </div>
                     <div style={{ display: 'grid', gap: 12 }}>
                       {roleCards.map(([title, caption]) => (
-                        <div key={title} style={{ padding: '14px 15px', borderRadius: 14, border: '1px solid #e8ecf4', background: '#fbfcfe', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div key={title} style={{ padding: '14px 15px', borderRadius: 14, border: `1px solid ${cardBorder}`, background: roleDirectoryBg, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div>
-                            <div style={{ fontWeight: 700, color: '#2b3140' }}>{title}</div>
-                            <div style={{ color: '#7c8599', fontSize: '.88rem', marginTop: 4 }}>{caption}</div>
+                            <div style={{ fontWeight: 700, color: cardText }}>{title}</div>
+                            <div style={{ color: cardMuted, fontSize: '.88rem', marginTop: 4 }}>{caption}</div>
                           </div>
-                          <Edit2 size={15} color="#7c8599" />
+                          <Edit2 size={15} color={cardMuted} />
                         </div>
                       ))}
-                      <button type="button" onClick={() => setShowAddModal(true)} style={{ marginTop: 6, height: 42, borderRadius: 14, border: '1px solid #d7deea', background: '#fff', color: '#364152', fontWeight: 700, cursor: 'pointer' }}>
+                      <button type="button" onClick={() => setShowAddModal(true)} style={{ marginTop: 6, height: 42, borderRadius: 14, border: `1px solid ${cardBorder}`, background: inputBg, color: shellText, fontWeight: 700, cursor: 'pointer' }}>
                         Create New Role
                       </button>
                     </div>
                   </div>
 
-                  <div style={{ ...panel, padding: 22, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', minHeight: 280 }}>
-                    <div style={{ width: 52, height: 52, borderRadius: 999, background: '#f5f6fb', border: '1px solid #e7ebf3', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
+                  <div style={{ ...panel, padding: 22, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', minHeight: 280, background: cardPanel, border: `1px solid ${cardBorder}` }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 999, background: mutedSurface, border: `1px solid ${cardBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
                       <ShieldCheck size={22} color="#6b7280" />
                     </div>
-                    <h3 style={{ margin: '0 0 10px', fontSize: '1.55rem', fontWeight: 800, color: '#232735' }}>Security Policies</h3>
-                    <p style={{ maxWidth: 480, margin: '0 0 22px', color: '#6b7280', lineHeight: 1.7 }}>
+                    <h3 style={{ margin: '0 0 10px', fontSize: '1.55rem', fontWeight: 800, color: cardText }}>Security Policies</h3>
+                    <p style={{ maxWidth: 480, margin: '0 0 22px', color: cardMuted, lineHeight: 1.7 }}>
                       Manage MFA requirements, session timeouts, and access boundaries for your organization with a read-only security overview for admins.
                     </p>
-                    <button type="button" style={{ height: 44, padding: '0 20px', borderRadius: 14, border: '1px solid #d7deea', background: '#fff', color: '#364152', fontWeight: 700, cursor: 'pointer' }}>
+                    <button type="button" style={{ height: 44, padding: '0 20px', borderRadius: 14, border: `1px solid ${cardBorder}`, background: inputBg, color: shellText, fontWeight: 700, cursor: 'pointer' }}>
                       Configure Policies
                     </button>
                   </div>
@@ -379,28 +381,40 @@ const UserManagement: React.FC = () => {
 
       {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
-          <div style={{ width: '100%', maxWidth: 480, background: '#fff', borderRadius: 22, border: '1px solid #dbe4f0', boxShadow: '0 24px 60px rgba(15,23,42,.2)', padding: 24 }}>
-            <h2 style={{ margin: '0 0 18px', fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>Add New User</h2>
+          <div style={{ width: '100%', maxWidth: 480, background: modalBg, borderRadius: 22, border: `1px solid ${cardBorder}`, boxShadow: '0 24px 60px rgba(15,23,42,.2)', padding: 24 }}>
+            <h2 style={{ margin: '0 0 18px', fontSize: '1.4rem', fontWeight: 800, color: modalText }}>Add New User</h2>
             <form onSubmit={handleAddUser} style={{ display: 'grid', gap: 14 }}>
-              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Name</label><input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={inputBase} required /></div>
+              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: modalMuted }}>Name</label><input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={{ ...inputBase, background: inputBg, color: inputText, borderColor: inputBorder }} required /></div>
               <div>
-                <label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Email</label>
+                <label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: modalMuted }}>Email</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  style={inputBase}
+                  style={{ ...inputBase, background: inputBg, color: inputText, borderColor: inputBorder }}
                   required
                   pattern="^[^\s@]+@neurodetect\.ai$"
                   placeholder="name@neurodetect.ai"
                 />
-                <div style={{ marginTop: 6, fontSize: '.8rem', color: '#64748b' }}>Only organization emails ending with @neurodetect.ai are allowed.</div>
+                <div style={{ marginTop: 6, fontSize: '.8rem', color: modalMuted }}>Only organization emails ending with @neurodetect.ai are allowed.</div>
               </div>
-              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Password</label><input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} style={inputBase} required minLength={6} /></div>
-              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: '#334155' }}>Role</label><select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })} style={inputBase}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></div>
+              <div>
+                <label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: modalMuted }}>Phone Number</label>
+                <input
+                  type="tel"
+                  value={formData.phone_number}
+                  onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                  style={{ ...inputBase, background: inputBg, color: inputText, borderColor: inputBorder }}
+                  required
+                  placeholder="+94 704209968"
+                />
+                <div style={{ marginTop: 6, fontSize: '.8rem', color: modalMuted }}>Use country code format with a space after it, for example +94 704209968.</div>
+              </div>
+              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: modalMuted }}>Password</label><input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} style={{ ...inputBase, background: inputBg, color: inputText, borderColor: inputBorder }} required minLength={6} /></div>
+              <div><label style={{ display: 'block', fontSize: '.9rem', fontWeight: 700, marginBottom: 8, color: modalMuted }}>Role</label><select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })} style={{ ...inputBase, background: inputBg, color: inputText, borderColor: inputBorder }}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></div>
               <div style={{ display: 'flex', gap: 12, paddingTop: 6 }}>
                 <button type="submit" style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: 'linear-gradient(135deg,#7c3aed,#8b5cf6)', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Create User</button>
-                <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+                <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: inputBg, color: shellText, border: `1px solid ${inputBorder}`, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
               </div>
             </form>
           </div>
@@ -409,17 +423,17 @@ const UserManagement: React.FC = () => {
 
       {showDeleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
-          <div style={{ width: '100%', maxWidth: 400, background: '#fff', borderRadius: 22, border: '1px solid #dbe4f0', boxShadow: '0 24px 60px rgba(15,23,42,.2)', padding: 24 }}>
+          <div style={{ width: '100%', maxWidth: 400, background: modalBg, borderRadius: 22, border: `1px solid ${cardBorder}`, boxShadow: '0 24px 60px rgba(15,23,42,.2)', padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 18 }}>
               <XCircle size={24} color="#ef4444" />
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#111827' }}>Delete User?</h2>
-                <p style={{ margin: '6px 0 0', fontSize: '.94rem', color: '#64748b' }}>This action cannot be undone.</p>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: modalText }}>Delete User?</h2>
+                <p style={{ margin: '6px 0 0', fontSize: '.94rem', color: modalMuted }}>This action cannot be undone.</p>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
               <button onClick={() => handleDeleteUser(showDeleteConfirm)} style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: '#ef4444', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Delete</button>
-              <button onClick={() => setShowDeleteConfirm(null)} style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => setShowDeleteConfirm(null)} style={{ flex: 1, padding: '12px 14px', borderRadius: 14, background: inputBg, color: shellText, border: `1px solid ${inputBorder}`, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
         </div>

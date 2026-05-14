@@ -6,8 +6,12 @@ Routes: /investigations/alerts  /investigations/alerts/{alert_id}
         /investigations/alerts/escalate
 """
 import logging
+import os
+import base64
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from urllib import parse, request as urllib_request
+from urllib.error import URLError, HTTPError
 
 import api_utils
 from bson import ObjectId
@@ -22,10 +26,12 @@ from api_utils import (
     _model_display_name,
     _normalize_model_label,
 )
+from shared_state import AUTH_USERS_COLLECTION
 from batch_processor import processor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/investigations", tags=["investigations"])
+ALERT_NOTIFICATION_COLLECTION = 'alert_notifications'
 
 
 class ResolveFraudRequest(BaseModel):
@@ -53,6 +59,87 @@ class EscalateRequest(BaseModel):
     escalation_note: Optional[str] = None
 
 
+def _normalize_phone_number(phone_number: Any) -> str:
+    return str(phone_number or '').strip()
+
+
+def _send_sms_notification(phone_number: str, message: str) -> dict[str, Any]:
+    account_sid = os.getenv('TWILIO_ACCOUNT_SID', '').strip()
+    auth_token = os.getenv('TWILIO_AUTH_TOKEN', '').strip()
+    from_number = os.getenv('TWILIO_FROM_NUMBER', '').strip()
+
+    if account_sid and auth_token and from_number:
+        url = f'https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json'
+        body = parse.urlencode({
+            'To': phone_number,
+            'From': from_number,
+            'Body': message,
+        }).encode('utf-8')
+        basic_auth = base64.b64encode(f'{account_sid}:{auth_token}'.encode('utf-8')).decode('ascii')
+        req = urllib_request.Request(
+            url,
+            data=body,
+            method='POST',
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': f'Basic {basic_auth}',
+            },
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=10) as response:
+                return {'sent': True, 'provider': 'twilio', 'status': response.status}
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            logger.warning("SMS delivery failed for %s: %s", phone_number, exc)
+            return {'sent': False, 'provider': 'twilio', 'reason': str(exc)}
+
+    return {'sent': False, 'provider': 'queue', 'reason': 'sms_provider_not_configured'}
+
+
+def _notify_senior_analysts(alert_doc: dict[str, Any], analyst_name: str, escalation_note: Optional[str]) -> list[dict[str, Any]]:
+    if not processor.db or not processor.db.connected:
+        return []
+
+    db = processor.db.db
+    users_collection = db[AUTH_USERS_COLLECTION]
+    notifications_collection = db[ALERT_NOTIFICATION_COLLECTION]
+    senior_users = list(users_collection.find({
+        'role': 'senior_analyst',
+        'phone_number': {'$exists': True, '$nin': ['', None]},
+    }, {'password_hash': 0}))
+
+    alert_title = str(alert_doc.get('title') or 'Fraud alert')
+    transaction_id = str(alert_doc.get('transaction_id') or '')
+    message = f"Fraud alert escalated: {transaction_id}. {alert_title}."
+    if escalation_note:
+        message = f"{message} Note: {escalation_note.strip()}"
+
+    now_utc = datetime.utcnow()
+    notifications: list[dict[str, Any]] = []
+    for user in senior_users:
+        phone_number = _normalize_phone_number(user.get('phone_number'))
+        if not phone_number:
+            continue
+
+        delivery = _send_sms_notification(phone_number, message)
+        record = {
+            'type': 'senior_analyst_escalation',
+            'alert_id': str(alert_doc.get('_id')),
+            'transaction_id': transaction_id,
+            'recipient_user_id': str(user.get('_id')),
+            'recipient_name': str(user.get('name') or ''),
+            'recipient_phone_number': phone_number,
+            'message': message,
+            'delivery': delivery,
+            'created_at': now_utc.isoformat(),
+            'created_at_dt': now_utc,
+            'created_by': analyst_name,
+        }
+        notifications_collection.insert_one(record)
+        notifications.append(record)
+
+    return notifications
+
+
 @router.get("/alerts")
 async def get_investigation_alerts(hours: int = 24, limit: int = 200, status: str = 'open'):
     """Return investigation-ready alerts from MongoDB for the last N hours."""
@@ -63,8 +150,8 @@ async def get_investigation_alerts(hours: int = 24, limit: int = 200, status: st
         hours = max(1, min(hours, 168))
         limit = max(1, min(limit, 500))
         status_value = status.strip().lower()
-        if status_value not in {'open', 'dismissed', 'resolved_fraud', 'all'}:
-            raise HTTPException(status_code=400, detail="status must be one of: open, dismissed, resolved_fraud, all")
+        if status_value not in {'open', 'dismissed', 'resolved_fraud', 'escalated', 'all'}:
+            raise HTTPException(status_code=400, detail="status must be one of: open, dismissed, resolved_fraud, escalated, all")
 
         db = processor.db.db
         since = datetime.utcnow() - timedelta(hours=hours)
@@ -380,10 +467,18 @@ async def escalate_investigation_alert(payload: EscalateRequest):
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="No matching alert found")
 
+        alert_doc = db['immediate_alerts'].find_one(query) or {
+            '_id': payload.alert_id or payload.transaction_id,
+            'transaction_id': payload.transaction_id or '',
+            'title': 'Fraud alert',
+        }
+        notifications = _notify_senior_analysts(alert_doc, (payload.analyst_name or 'investigator').strip(), payload.escalation_note)
+
         return JSONResponse({
             'success': True,
             'message': 'Alert escalated to senior analyst',
             'modified': result.modified_count > 0,
+            'notifications_sent': len(notifications),
         })
 
     except HTTPException:

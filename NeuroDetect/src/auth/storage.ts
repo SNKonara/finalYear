@@ -148,7 +148,7 @@ export const updateUserRole = async (token: string, userId: string, role: UserRo
 
 export const createUser = async (
   token: string,
-  payload: { name: string; email: string; password: string; role: UserRole },
+  payload: { name: string; email: string; phone_number: string; password: string; role: UserRole },
 ): Promise<ManagedUser> => {
   const response = await fetch(`${AUTH_API_BASE}/auth/users`, {
     method: 'POST',

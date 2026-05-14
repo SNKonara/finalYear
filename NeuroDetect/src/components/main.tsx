@@ -43,18 +43,20 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             {/* Protected application routes */}
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
-                <Route element={<ProtectedRoute allowedRoles={['admin', 'analyst']} />}>
+                <Route element={<ProtectedRoute allowedRoles={['admin', 'analyst', 'senior_analyst']} />}>
                   <Route path="/" element={<UnifiedModelsDashboard />} />
                   <Route path="/lstmreal" element={<UnifiedModelsDashboard />} />
                   <Route path="/snnreal" element={<UnifiedModelsDashboard />} />
                   <Route path="/streaming" element={<Streaming />} />
                   <Route path="/system" element={<SystemOverview />} />
                 </Route>
-                <Route element={<ProtectedRoute allowedRoles={['analyst']} />}>
+                <Route element={<ProtectedRoute allowedRoles={['analyst', 'senior_analyst']} />}>
                   <Route path="/snn-alerts" element={<SNNAlertsInvestigation />} />
                   <Route path="/batch-upload" element={<BatchProcessing />} />
                   <Route path="/investigations" element={<Investigations />} />
+                  <Route path="/senior-alerts" element={<Investigations />} />
                   <Route path="/investigations/:alertId" element={<InvestigationDetail />} />
+                  <Route path="/senior-alerts/:alertId" element={<InvestigationDetail />} />
                 </Route>
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/summary" element={<Reports />} />

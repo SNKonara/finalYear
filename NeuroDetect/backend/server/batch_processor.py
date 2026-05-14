@@ -132,6 +132,14 @@ class BatchProcessor:
             model.eval()
             logger.info("Model loaded and set to eval mode")
             
+            # Load runtime evaluation metrics if available
+            perf_path = SAVED_MODELS_DIR / "autoencoder_performance.json"
+            ae_performance: dict = {}
+            if perf_path.exists():
+                with open(perf_path, 'r') as _f:
+                    _perf_data = json.load(_f)
+                    ae_performance = _perf_data.get('runtime_evaluation', {})
+
             MODELS['autoencoder'] = model
             PREPROCESSORS['autoencoder'] = preprocessor
             MODEL_CONFIGS['autoencoder'] = {
@@ -141,7 +149,7 @@ class BatchProcessor:
                 'architecture': architecture,
                 'architecture_readable': architecture_readable,
                 'device': str(self.device),
-                'performance': {},
+                'performance': ae_performance,
             }
             
             logger.info(f"✓ Autoencoder loaded successfully - {num_features} features, threshold: {threshold:.6f}")
@@ -201,6 +209,8 @@ class BatchProcessor:
             model.eval()
             logger.info("LSTM model loaded and set to eval mode")
             
+            runtime_eval_lstm = config.get('runtime_evaluation', {}) if config_path.exists() else {}
+
             MODELS['lstm'] = model
             PREPROCESSORS['lstm'] = preprocessor
             MODEL_CONFIGS['lstm'] = {
@@ -212,13 +222,24 @@ class BatchProcessor:
                 'device': str(self.device),
                 'hidden_size': int(lstm_config.get('hidden_dim', 256)),
                 'num_layers': int(lstm_config.get('num_layers', 2)),
-                'performance': {
+                'training_performance': {
                     'accuracy': float(performance.get('accuracy', 0.0)),
                     'precision': float(performance.get('fraud_precision', performance.get('precision', 0.0))),
                     'recall': float(performance.get('fraud_recall', performance.get('recall', 0.0))),
                     'f1': float(performance.get('fraud_f1', performance.get('f1_score', performance.get('f1', 0.0)))),
                     'f1_score': float(performance.get('f1_score', performance.get('f1', 0.0))),
                     'fraud_f1': float(performance.get('fraud_f1', performance.get('f1_score', performance.get('f1', 0.0)))),
+                    'roc_auc': float(performance.get('roc_auc', performance.get('auc', 0.0))),
+                    'auc': float(performance.get('roc_auc', performance.get('auc', 0.0))),
+                    'optimal_threshold': float(performance.get('optimal_threshold', threshold)),
+                },
+                'performance': {
+                    'accuracy': float(runtime_eval_lstm.get('accuracy', performance.get('accuracy', 0.0))),
+                    'precision': float(runtime_eval_lstm.get('precision', performance.get('fraud_precision', performance.get('precision', 0.0)))),
+                    'recall': float(runtime_eval_lstm.get('recall', performance.get('fraud_recall', performance.get('recall', 0.0)))),
+                    'f1': float(runtime_eval_lstm.get('f1', performance.get('fraud_f1', performance.get('f1', 0.0)))),
+                    'f1_score': float(runtime_eval_lstm.get('f1', performance.get('f1_score', performance.get('f1', 0.0)))),
+                    'fraud_f1': float(runtime_eval_lstm.get('f1', performance.get('fraud_f1', performance.get('f1', 0.0)))),
                     'roc_auc': float(performance.get('roc_auc', performance.get('auc', 0.0))),
                     'auc': float(performance.get('roc_auc', performance.get('auc', 0.0))),
                     'optimal_threshold': float(performance.get('optimal_threshold', threshold)),
@@ -323,6 +344,8 @@ class BatchProcessor:
             unknown_customer_policy = str(threshold_policy.get('unknown_customer_policy', 'global'))
             time_steps = int(metadata.get('time_steps', checkpoint.get('time_steps', 20)))
 
+            runtime_eval_snn = metadata.get('runtime_evaluation', {})
+
             MODELS['snn'] = model
             PREPROCESSORS['snn'] = {
                 'scaler': scaler,
@@ -338,11 +361,18 @@ class BatchProcessor:
                 'num_features': len(feature_names),
                 'architecture': f"SNN-FC{int(checkpoint.get('input_size', len(feature_names) or 24))}-{int(checkpoint.get('hidden_size', 64))}-{int(checkpoint.get('hidden_size', 64))}-2",
                 'device': str(self.device),
-                'performance': {
+                'training_performance': {
                     'accuracy': float(test_metrics.get('accuracy', 0.0)),
                     'precision': float(test_metrics.get('precision', 0.0)),
                     'recall': float(test_metrics.get('recall', 0.0)),
                     'f1': float(test_metrics.get('f1', 0.0)),
+                    'auc': float(test_metrics.get('auc', 0.0)),
+                },
+                'performance': {
+                    'accuracy': float(runtime_eval_snn.get('accuracy', test_metrics.get('accuracy', 0.0))),
+                    'precision': float(runtime_eval_snn.get('precision', test_metrics.get('precision', 0.0))),
+                    'recall': float(runtime_eval_snn.get('recall', test_metrics.get('recall', 0.0))),
+                    'f1': float(runtime_eval_snn.get('f1', test_metrics.get('f1', 0.0))),
                     'auc': float(test_metrics.get('auc', 0.0)),
                 },
                 'model_dir': str(snn_dir),
@@ -880,6 +910,10 @@ class BatchProcessor:
                 else:
                     thr = max(base_threshold, global_threshold)
                     thr = float(thr * threshold_scale)
+                # Clamp threshold to [0, 0.95] to ensure fraud detection is possible
+                # (fraud_scores are probabilities in [0, 1])
+                if thr != float('inf'):
+                    thr = min(max(thr, 0.0), 0.95)
                 decision_thresholds.append(thr)
 
             decision_thresholds_arr = np.array(decision_thresholds, dtype=np.float32)
@@ -1025,6 +1059,14 @@ class BatchProcessor:
                 'processed_at': datetime.now().isoformat()
             }
 
+            labeled_metrics = stats.get('labeled_metrics') if isinstance(stats.get('labeled_metrics'), dict) else {}
+            if labeled_metrics:
+                batch_summary['statistics']['labeled_metrics'] = labeled_metrics
+                batch_summary['statistics']['accuracy'] = float(labeled_metrics.get('accuracy', 0.0) or 0.0)
+                batch_summary['statistics']['precision'] = float(labeled_metrics.get('precision', 0.0) or 0.0)
+                batch_summary['statistics']['recall'] = float(labeled_metrics.get('recall', 0.0) or 0.0)
+                batch_summary['statistics']['f1'] = float(labeled_metrics.get('f1', 0.0) or 0.0)
+
             fraud_only = results_df[results_df['prediction'] == 1].copy()
             top_cases = []
             if len(fraud_only) > 0:
@@ -1055,9 +1097,15 @@ class BatchProcessor:
             for name in ['autoencoder', 'lstm', 'snn']:
                 perf = MODEL_CONFIGS.get(name, {}).get('performance', {})
                 architecture = MODEL_CONFIGS.get(name, {}).get('architecture', name.upper())
-                accuracy_val = float(perf.get('accuracy', 0.0) or 0.0)
-                precision_val = float(perf.get('precision', 0.0) or 0.0)
-                recall_val = float(perf.get('recall', 0.0) or 0.0)
+
+                runtime_perf = labeled_metrics if name == model_type and labeled_metrics else {}
+                accuracy_raw = runtime_perf.get('accuracy', perf.get('accuracy', 0.0))
+                precision_raw = runtime_perf.get('precision', perf.get('precision', 0.0))
+                recall_raw = runtime_perf.get('recall', perf.get('recall', 0.0))
+
+                accuracy_val = float(accuracy_raw or 0.0)
+                precision_val = float(precision_raw or 0.0)
+                recall_val = float(recall_raw or 0.0)
                 if accuracy_val <= 1.0:
                     accuracy_val *= 100.0
                 if precision_val <= 1.0:

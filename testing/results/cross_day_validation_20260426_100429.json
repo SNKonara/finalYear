@@ -1,0 +1,175 @@
+{
+  "test_execution": "2026-04-26T04:34:29.754022",
+  "api_base": "http://127.0.0.1:8000",
+  "sample_file": "backend/dataset/fraudTest_sample20.csv",
+  "phases": {
+    "1_baseline_consistency": {
+      "description": "3 runs per model for consistency check",
+      "results": {
+        "autoencoder": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.452310",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.02131342887878418
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.475284",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.022348403930664062
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.490731",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.014820575714111328
+          }
+        ],
+        "lstm": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.505783",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.01407933235168457
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.521898",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.015475749969482422
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.526480",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.003934144973754883
+          }
+        ],
+        "snn": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.553375",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.026223182678222656
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.569279",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.015316247940063477
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.584289",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.014515876770019531
+          }
+        ]
+      }
+    },
+    "2_threshold_monotonicity": {
+      "description": "Threshold sweep with monotonicity validation",
+      "results": {
+        "autoencoder": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.599318",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.014288663864135742
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.614352",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.014386892318725586
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.630439",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.015586137771606445
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.646983",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.01598072052001953
+          }
+        ],
+        "lstm": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.652045",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.004300594329833984
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.678872",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.02613091468811035
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.683006",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.0035724639892578125
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.687391",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.0037467479705810547
+          }
+        ],
+        "snn": [
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.691577",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.003488779067993164
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.711044",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.01892399787902832
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.715545",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.003958940505981445
+          },
+          {
+            "success": false,
+            "timestamp": "2026-04-26T04:34:29.719249",
+            "error": "HTTP 422: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"model_type\"],\"msg\":\"Field required\",\"input\":null}]}",
+            "response_time": 0.0031991004943847656
+          }
+        ]
+      }
+    },
+    "3_lstm_sequence_sensitivity": {
+      "description": "LSTM ordering sensitivity test",
+      "results": {
+        "skipped": true,
+        "reason": "Requires file variants"
+      }
+    },
+    "4_data_drift_detection": {
+      "description": "Score distribution analysis",
+      "results": {
+        "status": "error",
+        "reason": "'str' object has no attribute 'get'"
+      }
+    }
+  },
+  "summary": {
+    "baseline_consistency_pass": false,
+    "threshold_monotonicity_pass": false,
+    "overall_status": "FAIL",
+    "recommendations": []
+  }
+}

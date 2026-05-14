@@ -21,4 +21,4 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 AUTH_USERS_COLLECTION    = 'users'
 AUTH_SESSIONS_COLLECTION = 'auth_sessions'
-VALID_ROLES              = {'admin', 'analyst', 'viewer'}
+VALID_ROLES              = {'admin', 'analyst', 'senior_analyst', 'viewer'}

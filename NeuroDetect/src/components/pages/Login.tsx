@@ -8,7 +8,6 @@ import {
   Shield,
   Activity,
   AlertCircle,
-  Fingerprint,
   ArrowRight
 } from 'lucide-react';
 import '../../pages/css/login.css';
@@ -171,20 +170,6 @@ const Login: React.FC = () => {
               )}
             </button>
 
-            <div className="divider">
-              <span className="divider-text">or continue with</span>
-            </div>
-
-            <div className="social-login enterprise-login">
-              <button type="button" className="social-button" disabled={isLoading}>
-                <Fingerprint className="social-icon" size={16} />
-                Corporate ID
-              </button>
-              <button type="button" className="social-button" disabled={isLoading}>
-                <Shield className="social-icon" size={16} />
-                SSO Login
-              </button>
-            </div>
           </form>
 
           <div className="login-footer">

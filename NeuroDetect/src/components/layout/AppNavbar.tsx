@@ -497,8 +497,8 @@ const AppNavbar: React.FC = () => {
                     fontWeight: 700,
                     textTransform: 'capitalize',
                     letterSpacing: '0.06em',
-                    background: currentUser?.role === 'admin' ? 'rgba(239,68,68,0.14)' : currentUser?.role === 'analyst' ? 'rgba(245,158,11,0.14)' : 'rgba(16,185,129,0.14)',
-                    color: currentUser?.role === 'admin' ? '#ef4444' : currentUser?.role === 'analyst' ? '#f59e0b' : '#10b981',
+                    background: currentUser?.role === 'admin' ? 'rgba(239,68,68,0.14)' : currentUser?.role === 'analyst' || currentUser?.role === 'senior_analyst' ? 'rgba(245,158,11,0.14)' : 'rgba(16,185,129,0.14)',
+                    color: currentUser?.role === 'admin' ? '#ef4444' : currentUser?.role === 'analyst' || currentUser?.role === 'senior_analyst' ? '#f59e0b' : '#10b981',
                   }}>
                     {currentUser?.role}
                   </div>

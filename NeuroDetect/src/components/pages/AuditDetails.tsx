@@ -47,6 +47,12 @@ const formatMoney = (v: number) => {
   return `$${v.toFixed(2)}`;
 };
 
+const normalizePercent = (value?: number) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return null;
+  const numeric = Number(value);
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+};
+
 const severityColor = (s?: string) => {
   const l = (s || '').toLowerCase();
   if (l.includes('critical') || l.includes('high')) return { bg: '#fee2e2', text: '#dc2626' };
@@ -118,7 +124,7 @@ const AuditDetails: React.FC = () => {
   const detailRows = useMemo(
     () =>
       (report?.sections?.top_fraudulent_merchants || []).slice(0, 8).map((m, i) => ({
-        id: `#TRX-${(report?.report_id || '').slice(-4).toUpperCase()}${String(i + 1).padStart(2, '0')}`,
+        id: `${String(report?.report_id || 'RPT').toUpperCase()}-${String(i + 1).padStart(2, '0')}`,
         vector: m.merchant_name || 'Unknown Merchant',
         amount: m.total_fraud_amount || 0,
         count: m.fraud_count || 0,
@@ -132,7 +138,9 @@ const AuditDetails: React.FC = () => {
   const cards = report?.sections?.summary_cards;
   const totalTxns = cards?.total_transactions ?? report?.summary?.total_transactions ?? 0;
   const fraudCount = cards?.number_of_frauds ?? report?.summary?.fraud_detected ?? 0;
-  const modelConf = (perfRows[0]?.accuracy ?? 99.2);
+  const derivedFraudRate = totalTxns > 0 ? (fraudCount / totalTxns) * 100 : 0;
+  const fraudRate = report?.summary?.fraud_rate_percent ?? derivedFraudRate;
+  const modelConf = normalizePercent(perfRows[0]?.accuracy);
 
   // ── loading ──
   if (loading) {
@@ -227,8 +235,8 @@ const AuditDetails: React.FC = () => {
           {[
             { label: 'Total Analyzed', value: totalTxns.toLocaleString(), icon: <TrendingUp size={18} color="#7c3aed" /> },
             { label: 'Fraud Detected', value: fraudCount.toLocaleString(), icon: <TrendingDown size={18} color="#ef4444" /> },
-            { label: 'Fraud Rate', value: `${Number(report.summary?.fraud_rate_percent ?? 0).toFixed(2)}%`, icon: null },
-            { label: 'Model Confidence', value: `${Number(modelConf).toFixed(1)}%`, icon: <ShieldCheck size={18} color="#10b981" /> },
+              { label: 'Fraud Rate', value: `${Number(fraudRate).toFixed(2)}%`, icon: null },
+              { label: 'Model Confidence', value: modelConf == null ? 'N/A' : `${Number(modelConf).toFixed(1)}%`, icon: <ShieldCheck size={18} color="#10b981" /> },
             { label: 'Total Amount', value: formatMoney(cards?.total_amount ?? 0), icon: null },
             { label: 'Fraud Amount', value: formatMoney(cards?.fraud_amount ?? 0), icon: null },
           ].map(({ label, value, icon }) => (
@@ -333,9 +341,9 @@ const AuditDetails: React.FC = () => {
                 {[
                   ['Model', report.model?.type || '-'],
                   ['Architecture', perfRows[0]?.architecture || '-'],
-                  ['Precision', perfRows[0]?.precision != null ? `${Number(perfRows[0].precision).toFixed(1)}%` : '-'],
-                  ['Recall', perfRows[0]?.recall != null ? `${Number(perfRows[0].recall).toFixed(1)}%` : '-'],
-                  ['Fraud Rate', `${Number(report.summary?.fraud_rate_percent ?? 0).toFixed(2)}%`],
+                  ['Precision', normalizePercent(perfRows[0]?.precision) != null ? `${Number(normalizePercent(perfRows[0]?.precision)).toFixed(1)}%` : '-'],
+                  ['Recall', normalizePercent(perfRows[0]?.recall) != null ? `${Number(normalizePercent(perfRows[0]?.recall)).toFixed(1)}%` : '-'],
+                  ['Fraud Rate', `${Number(fraudRate).toFixed(2)}%`],
                   ['Source', report.source?.type || '-'],
                 ].map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
@@ -389,9 +397,9 @@ const AuditDetails: React.FC = () => {
                     <tr key={i} style={{ borderTop: `1px solid ${border}` }}>
                       <td style={{ padding: '14px 18px', fontWeight: 700, textTransform: 'capitalize' }}>{row.model || '-'}</td>
                       <td style={{ padding: '14px 18px', color: currentTheme.textSecondary }}>{row.architecture || '-'}</td>
-                      <td style={{ padding: '14px 18px', fontWeight: 700, color: '#10b981' }}>{row.accuracy != null ? `${Number(row.accuracy).toFixed(1)}%` : '-'}</td>
-                      <td style={{ padding: '14px 18px' }}>{row.precision != null ? `${Number(row.precision).toFixed(1)}%` : '-'}</td>
-                      <td style={{ padding: '14px 18px' }}>{row.recall != null ? `${Number(row.recall).toFixed(1)}%` : '-'}</td>
+                      <td style={{ padding: '14px 18px', fontWeight: 700, color: '#10b981' }}>{normalizePercent(row.accuracy) != null ? `${Number(normalizePercent(row.accuracy)).toFixed(1)}%` : '-'}</td>
+                      <td style={{ padding: '14px 18px' }}>{normalizePercent(row.precision) != null ? `${Number(normalizePercent(row.precision)).toFixed(1)}%` : '-'}</td>
+                      <td style={{ padding: '14px 18px' }}>{normalizePercent(row.recall) != null ? `${Number(normalizePercent(row.recall)).toFixed(1)}%` : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

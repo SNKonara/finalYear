@@ -1,0 +1,727 @@
+{
+  "test_execution": "2026-04-26T04:46:26.579081",
+  "api_base": "http://127.0.0.1:8000",
+  "sample_file": "backend/dataset/fraudTest_sample20.csv",
+  "phases": {
+    "1_baseline_consistency": {
+      "description": "3 runs per model for consistency check",
+      "results": {
+        "autoencoder": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.119225",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.8095536231994629,
+            "batch_id": "batch_autoencoder_20260426_101623",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 2,
+              "tn": 18,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.9
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.191377",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.07094430923461914,
+            "batch_id": "batch_autoencoder_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 2,
+              "tn": 18,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.9
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.249625",
+            "model_type": "autoencoder",
+            "threshold": 0.0004117581993341446,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.05744194984436035,
+            "batch_id": "batch_autoencoder_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 2,
+              "tn": 18,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.9
+            }
+          }
+        ],
+        "lstm": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.351176",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.1002655029296875,
+            "batch_id": "batch_lstm_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 6,
+              "tn": 14,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.7
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.421872",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.06977987289428711,
+            "batch_id": "batch_lstm_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 6,
+              "tn": 14,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.7
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.494934",
+            "model_type": "lstm",
+            "threshold": 0.4321,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.0720524787902832,
+            "batch_id": "batch_lstm_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 6,
+              "tn": 14,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.7
+            }
+          }
+        ],
+        "snn": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.691505",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.19454693794250488,
+            "batch_id": "batch_snn_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:24.933422",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.24044132232666016,
+            "batch_id": "batch_snn_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.153722",
+            "model_type": "snn",
+            "threshold": 0.8999999999999996,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.2188572883605957,
+            "batch_id": "batch_snn_20260426_101624",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "2_threshold_monotonicity": {
+      "description": "Threshold sweep with monotonicity validation",
+      "results": {
+        "autoencoder": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.220482",
+            "model_type": "autoencoder",
+            "threshold": 0.3,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.06499981880187988,
+            "batch_id": "batch_autoencoder_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.269915",
+            "model_type": "autoencoder",
+            "threshold": 0.5,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.048485517501831055,
+            "batch_id": "batch_autoencoder_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.333428",
+            "model_type": "autoencoder",
+            "threshold": 0.7,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.06253290176391602,
+            "batch_id": "batch_autoencoder_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.381561",
+            "model_type": "autoencoder",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.00044303241884335876,
+            "max_fraud_score": 0.005319544114172459,
+            "min_fraud_score": 8.588958735344931e-05,
+            "response_time": 0.04732155799865723,
+            "batch_id": "batch_autoencoder_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          }
+        ],
+        "lstm": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.458006",
+            "model_type": "lstm",
+            "threshold": 0.3,
+            "fraud_count": 10,
+            "total": 20,
+            "fraud_percentage": 50.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.07534217834472656,
+            "batch_id": "batch_lstm_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 10,
+              "tn": 10,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.5
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.536243",
+            "model_type": "lstm",
+            "threshold": 0.5,
+            "fraud_count": 6,
+            "total": 20,
+            "fraud_percentage": 30.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.07724142074584961,
+            "batch_id": "batch_lstm_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 6,
+              "tn": 14,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.7
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.612337",
+            "model_type": "lstm",
+            "threshold": 0.7,
+            "fraud_count": 1,
+            "total": 20,
+            "fraud_percentage": 5.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.07508468627929688,
+            "batch_id": "batch_lstm_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 1,
+              "tn": 19,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.95
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.698267",
+            "model_type": "lstm",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.3355863690376282,
+            "max_fraud_score": 0.8657432794570923,
+            "min_fraud_score": 0.00015730482118669897,
+            "response_time": 0.08485746383666992,
+            "batch_id": "batch_lstm_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          }
+        ],
+        "snn": [
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:25.924183",
+            "model_type": "snn",
+            "threshold": 0.3,
+            "fraud_count": 7,
+            "total": 20,
+            "fraud_percentage": 35.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.22378897666931152,
+            "batch_id": "batch_snn_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 7,
+              "tn": 13,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.65
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:26.135451",
+            "model_type": "snn",
+            "threshold": 0.5,
+            "fraud_count": 2,
+            "total": 20,
+            "fraud_percentage": 10.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.20958447456359863,
+            "batch_id": "batch_snn_20260426_101625",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 2,
+              "tn": 18,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 0.9
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:26.331681",
+            "model_type": "snn",
+            "threshold": 0.7,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.194671630859375,
+            "batch_id": "batch_snn_20260426_101626",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          },
+          {
+            "success": true,
+            "timestamp": "2026-04-26T04:46:26.533433",
+            "model_type": "snn",
+            "threshold": 0.9,
+            "fraud_count": 0,
+            "total": 20,
+            "fraud_percentage": 0.0,
+            "avg_fraud_score": 0.22515900433063507,
+            "max_fraud_score": 0.6850399971008301,
+            "min_fraud_score": 0.0008065887959674001,
+            "response_time": 0.20000100135803223,
+            "batch_id": "batch_snn_20260426_101626",
+            "labeled_metrics": {
+              "labeled_metrics_available": true,
+              "labeled_rows": 20,
+              "tp": 0,
+              "fp": 0,
+              "tn": 20,
+              "fn": 0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "accuracy": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "3_lstm_sequence_sensitivity": {
+      "description": "LSTM ordering sensitivity test",
+      "results": {
+        "skipped": true,
+        "reason": "Requires file variants"
+      }
+    },
+    "4_data_drift_detection": {
+      "description": "Score distribution analysis",
+      "results": {
+        "status": "partial",
+        "data": {}
+      }
+    },
+    "5_recommendation_steps": {
+      "description": "Threshold recommendations and deployment hold state",
+      "results": {
+        "deployment_state": "on_hold",
+        "project_deploy_mode": "deploy_all_models_together",
+        "threshold_recommendations": {
+          "autoencoder": {
+            "recommended": {
+              "threshold": 0.3,
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "accuracy": 1.0
+            },
+            "all_candidates": [
+              {
+                "threshold": 0.3,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              },
+              {
+                "threshold": 0.5,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              },
+              {
+                "threshold": 0.7,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              },
+              {
+                "threshold": 0.9,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              }
+            ]
+          },
+          "snn": {
+            "recommended": {
+              "threshold": 0.3,
+              "f1": 0.0,
+              "precision": 0.0,
+              "recall": 0.0,
+              "accuracy": 0.65
+            },
+            "all_candidates": [
+              {
+                "threshold": 0.3,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 0.65
+              },
+              {
+                "threshold": 0.5,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 0.9
+              },
+              {
+                "threshold": 0.7,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              },
+              {
+                "threshold": 0.9,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "accuracy": 1.0
+              }
+            ]
+          }
+        },
+        "notes": [
+          "Deployment is intentionally on hold.",
+          "When resumed, deploy API + WebSocket + frontend together."
+        ]
+      }
+    }
+  },
+  "deployment": {
+    "status": "on_hold",
+    "strategy": "deploy_all_models_together_with_project",
+    "apply_threshold_updates": {
+      "persist": false,
+      "updates": [
+        {
+          "model": "autoencoder",
+          "success": true,
+          "response": {
+            "success": true,
+            "model_type": "autoencoder",
+            "previous_threshold": 0.0004117581993341446,
+            "threshold": 0.3,
+            "persisted": false,
+            "audit_logged": true,
+            "updated_by": {
+              "email": "system",
+              "role": "system"
+            }
+          }
+        },
+        {
+          "model": "snn",
+          "success": true,
+          "response": {
+            "success": true,
+            "model_type": "snn",
+            "previous_threshold": 0.8999999999999996,
+            "threshold": 0.3,
+            "persisted": false,
+            "audit_logged": true,
+            "updated_by": {
+              "email": "system",
+              "role": "system"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "summary": {
+    "baseline_consistency_pass": true,
+    "threshold_monotonicity_pass": true,
+    "overall_status": "PASS",
+    "recommendations": []
+  }
+}

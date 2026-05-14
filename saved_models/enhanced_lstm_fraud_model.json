@@ -39,6 +39,21 @@
         "pr_auc": 0.9979928044407158,
         "optimal_threshold": 0.86851567029953
     },
+    "runtime_evaluation": {
+        "dataset": "fraudTest.csv",
+        "evaluated_at": "2026-04-29",
+        "threshold_used": 0.86851567029953,
+        "total_records": 555719,
+        "tp": 99,
+        "fp": 18032,
+        "tn": 535542,
+        "fn": 2046,
+        "accuracy": 0.96387,
+        "precision": 0.00546,
+        "recall": 0.046154,
+        "f1": 0.009765,
+        "note": "Low recall/precision indicates distribution shift vs 2020 training data."
+    },
     "model_config": {
         "input_dim": 24,
         "hidden_dim": 256,

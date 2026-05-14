@@ -231,14 +231,12 @@ def _synthesize_from_hourly(hdoc_raw: Any, h: dict) -> dict:
     if not stored_perf:
         for m in models_raw:
             mt = str(m.get('model_type', 'unknown')).upper()
-            m_total = int(m.get('total_predictions', 0) or 0)
-            m_fraud = int(m.get('fraud_detected', 0) or 0)
-            m_rate = (m_fraud / m_total * 100.0) if m_total > 0 else 0.0
             stored_perf.append({
-                'model': mt, 'architecture': mt,
-                'accuracy': round(100.0 - m_rate, 2),
-                'precision': round(max(0.0, 100.0 - m_rate * 0.8), 2),
-                'recall': round(max(0.0, 100.0 - m_rate * 0.6), 2),
+                'model': mt,
+                'architecture': mt,
+                'accuracy': None,
+                'precision': None,
+                'recall': None,
             })
 
     # Average fraud score across models
