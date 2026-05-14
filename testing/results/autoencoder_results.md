@@ -3,8 +3,7 @@
 ## Run Info
 
 - Date: 2026-04-22
-- Tester: GitHub Copilot (GPT-5.3-Codex)
-- Branch/Commit: Not captured in this run
+
 
 ## Case Log
 
